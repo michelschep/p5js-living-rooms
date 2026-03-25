@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Living Rooms — Cellular Life</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d0d;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: 'Courier New', monospace;
+      color: #ddd;
+      padding: 12px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 18px;
+      letter-spacing: 3px;
+      color: #7ec8a0;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    #canvas-container {
+      position: relative;
+    }
+
+    #status-bar {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #555;
+      letter-spacing: 1px;
+    }
+
+    #refresh-info {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #444;
+    }
+
+    .legend {
+      display: flex;
+      gap: 18px;
+      margin-top: 10px;
+      font-size: 11px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <h1>🏠 Living Rooms — Cellular Life</h1>
+  <div id="canvas-container"></div>
+  <div id="status-bar">Laden van kamerdata…</div>
+  <div id="refresh-info"></div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#5ecf7a"></div> Producer</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#5ab4d4"></div> Herbivoor</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#e05c5c"></div> Predator</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#9b7fc9"></div> Decomposer</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#555"></div> Dood</div>
+  </div>
+  <script src="sketch.js"></script>
+</body>
+</html>

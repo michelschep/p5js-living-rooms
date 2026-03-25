@@ -1,0 +1,45 @@
+{
+  "refreshIntervalMs": 180000,
+  "rooms": [
+    {
+      "id": "floor1",
+      "name": "Begane grond",
+      "floor": 1,
+      "sensors": {
+        "temperature": 21.5,
+        "humidity": 55,
+        "light": 320,
+        "motion": false,
+        "co2": 820
+      }
+    },
+    {
+      "id": "floor2",
+      "name": "Eerste verdieping",
+      "floor": 2,
+      "sensors": {
+        "temperature": 19.2,
+        "humidity": 62,
+        "light": 80,
+        "motion": true,
+        "co2": 650
+      }
+    },
+    {
+      "id": "floor3",
+      "name": "Tweede verdieping",
+      "floor": 3,
+      "sensors": {
+        "temperature": 17.8,
+        "humidity": 45,
+        "light": 15,
+        "motion": false,
+        "co2": 480
+      }
+    }
+  ],
+  "doors": [
+    { "fromFloor": 1, "toFloor": 2, "positionFraction": 0.5 },
+    { "fromFloor": 2, "toFloor": 3, "positionFraction": 0.5 }
+  ]
+}
