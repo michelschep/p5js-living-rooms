@@ -64,6 +64,28 @@ function floorBounds(floorNum) {
   return { x: 0, y: floorTopY(floorNum), w: canvasW, h: floorH };
 }
 
+// Returns a synthetic env object blending two adjacent rooms.
+// Used when a cell is in the corridor transition zone.
+function blendRoomConfigs(rcLow, rcHigh, t) {
+  const lrp = (a, b) => a + (b - a) * t;
+  const s = {
+    temperature: lrp(rcLow.sensors.temperature, rcHigh.sensors.temperature),
+    humidity:    lrp(rcLow.sensors.humidity,    rcHigh.sensors.humidity),
+    light:       lrp(rcLow.sensors.light,       rcHigh.sensors.light),
+    co2:         lrp(rcLow.sensors.co2,         rcHigh.sensors.co2),
+    motion:      rcLow.sensors.motion || rcHigh.sensors.motion,
+  };
+  return {
+    id: rcLow.id, floorNum: rcLow.floorNum, sensors: s,
+    bounds: rcLow.bounds,
+    normTemp()     { return constrain((s.temperature - 10) / 25, 0, 1); },
+    normHumidity() { return constrain(s.humidity / 100, 0, 1); },
+    normLight()    { return constrain(s.light / 600, 0, 1); },
+    normCo2()      { return constrain((s.co2 - 400) / 800, 0, 1); },
+    hasMotion()    { return s.motion; },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // RoomConfig
 // ---------------------------------------------------------------------------
@@ -105,9 +127,12 @@ class BaseCell {
     this.isDead    = false;
     this.cellType  = 'base';
     this.noiseOff  = random(1000); // unique noise offset for organic shape
+    this.currentEnv = null; // set by updateRoomByPosition each frame
   }
 
-  getRoomConfig() { return roomDataList.find(r => r.id === this.roomId); }
+  getRoomConfig() {
+    return this.currentEnv ?? roomDataList.find(r => r.id === this.roomId);
+  }
 
   grow() {
     // Gradually grow toward maxSize when energy is good
@@ -119,14 +144,28 @@ class BaseCell {
   applyEnvironment() {
     const rc = this.getRoomConfig();
     if (!rc) return;
-    // Temperature drives metabolic speed (keep it subtle — 0.7–1.3×)
+    // Temperature drives metabolic speed (subtle — 0.7–1.3×)
     const speedMod = 0.7 + rc.normTemp() * 0.6;
     this.velX *= speedMod;
     this.velY *= speedMod;
-    // Motion detected → mild scatter
-    if (rc.hasMotion() && random() < 0.03) {
-      this.velX += random(-1.0, 1.0);
-      this.velY += random(-1.0, 1.0);
+    // Motion detected — different per cell type
+    if (rc.hasMotion()) {
+      if (this.cellType === 'predator') {
+        // Predators get excited: faster, more energy
+        if (random() < 0.06) { this.velX += random(-1.2, 1.2); this.velY += random(-1.2, 1.2); }
+        this.energy += 0.04;
+      } else if (this.cellType === 'herbivore') {
+        // Herbivores panic and scatter hard
+        if (random() < 0.08) { this.velX += random(-1.8, 1.8); this.velY += random(-1.8, 1.8); }
+      } else if (this.cellType === 'plant') {
+        // Plants get disturbed — mild energy drain (being stepped on)
+        this.energy -= 0.02;
+      } else if (this.cellType === 'fungus') {
+        // Fungus dislikes disturbance
+        this.energy -= 0.03;
+      }
+      // Decomposers love the extra organic material stirred up
+      if (this.cellType === 'decomposer') this.energy += 0.03;
     }
   }
 
@@ -147,26 +186,42 @@ class BaseCell {
     if (this.posY > canvasH - mg) { this.posY = canvasH - mg; this.velY *= -1; }
   }
 
-  // Update room membership based on current Y position.
-  // If in a corridor zone, keep the current room (cell is passing through).
+  // Update room membership + blended environment based on Y position.
   updateRoomByPosition() {
+    // Check corridor zones first — blend adjacent room environments
+    for (let f = 1; f <= 2; f++) {
+      const corrY = floorTopY(f) + floorH;
+      if (this.posY >= corrY && this.posY < corrY + CORRIDOR_H) {
+        const rcLow  = roomDataList.find(r => r.floorNum === f);
+        const rcHigh = roomDataList.find(r => r.floorNum === f + 1);
+        if (rcLow && rcHigh) {
+          const t = (this.posY - corrY) / CORRIDOR_H; // 0=near lower, 1=near upper
+          this.currentEnv = blendRoomConfigs(rcLow, rcHigh, t);
+          // Assign to whichever floor the cell is closer to
+          if (t < 0.5) { this.roomId = rcLow.id;  this.floorNum = rcLow.floorNum; }
+          else         { this.roomId = rcHigh.id; this.floorNum = rcHigh.floorNum; }
+          return;
+        }
+      }
+    }
+    // Normal floor zone
     for (const rc of roomDataList) {
       const b = rc.bounds;
       if (this.posY >= b.y && this.posY < b.y + b.h) {
-        this.roomId   = rc.id;
-        this.floorNum = rc.floorNum;
+        this.roomId     = rc.id;
+        this.floorNum   = rc.floorNum;
+        this.currentEnv = rc;
         return;
       }
     }
-    // In corridor — find nearest floor by distance and assign to it
+    // Fallback: nearest floor centre
     let nearest = null, nearestDist = Infinity;
     for (const rc of roomDataList) {
-      const b   = rc.bounds;
-      const mid = b.y + b.h / 2;
+      const mid = rc.bounds.y + rc.bounds.h / 2;
       const d   = abs(this.posY - mid);
       if (d < nearestDist) { nearestDist = d; nearest = rc; }
     }
-    if (nearest) { this.roomId = nearest.id; this.floorNum = nearest.floorNum; }
+    if (nearest) { this.roomId = nearest.id; this.floorNum = nearest.floorNum; this.currentEnv = nearest; }
   }
 
   baseUpdate(maxSpd, driftAmt) {
@@ -303,7 +358,7 @@ class CellHerbivore extends BaseCell {
       this.velY += (dy / mg) * 0.18;
       if (preyDist < this.cellSize + prey.cellSize + 1) {
         prey.isDead  = true;
-        this.energy += 45;
+        this.energy += 70;  // more energy per plant eaten
       }
     }
 
@@ -319,7 +374,7 @@ class CellHerbivore extends BaseCell {
     }
 
     this.energy = constrain(this.energy - 0.02, 0, 140);
-    if (this.energy > 95 && random() < 0.005) { spawnCell('herbivore', rc); this.energy -= 35; }
+    if (this.energy > 85 && random() < 0.007) { spawnCell('herbivore', rc); this.energy -= 30; }
   }
 
   draw() {
@@ -422,6 +477,10 @@ class CellDecomposer extends BaseCell {
 
     this.energy += rc.normHumidity() * 0.07 + rc.normCo2() * 0.05 - 0.03;
     this.energy  = constrain(this.energy, 0, 130);
+
+    // Overcrowding pressure: if too many decomposers globally, extra mortality
+    const globalDecomp = allCells.filter(c => c.cellType === 'decomposer').length;
+    if (globalDecomp > 40) this.energy -= 0.04 * (globalDecomp - 40) / 10;
 
     let target = null, targetDist = 70;
     for (const dc of deadCells) {
@@ -752,25 +811,30 @@ function drawRoomBackground(rc) {
 }
 
 function drawFloorDividers() {
-  // Draw corridors between floors as dark open passages
-  noStroke();
+  // Draw corridors as blended gradient between adjacent room colors
   for (let f = 1; f <= 2; f++) {
-    const corrY = floorTopY(f) + floorH;   // corridor starts at bottom of floor f
-    // Dark corridor background
-    fill(8, 12, 8);
-    rect(0, corrY, canvasW, CORRIDOR_H);
-    // Subtle entrance marks on left and right edges
-    fill(40, 70, 40, 120);
-    rect(0,           corrY, 6, CORRIDOR_H);
-    rect(canvasW - 6, corrY, 6, CORRIDOR_H);
-    // Floor label in corridor
-    fill(50, 80, 50, 100);
+    const rcLow  = roomDataList.find(r => r.floorNum === f);
+    const rcHigh = roomDataList.find(r => r.floorNum === f + 1);
+    if (!rcLow || !rcHigh) continue;
+    const corrY = floorTopY(f) + floorH;
+
+    // Draw gradient: sample across corridor height
+    const steps = 8;
+    for (let i = 0; i < steps; i++) {
+      const t  = i / steps;
+      const tT = rcLow.normTemp()  + (rcHigh.normTemp()  - rcLow.normTemp())  * t;
+      const tL = rcLow.normLight() + (rcHigh.normLight() - rcLow.normLight()) * t;
+      fill(12 + tT * 18, 14 + tL * 14, 18 + (1 - tT) * 12);
+      noStroke();
+      rect(0, corrY + (i / steps) * CORRIDOR_H, canvasW, CORRIDOR_H / steps + 1);
+    }
+    // Very subtle edge line
+    stroke(20, 35, 20, 60);
+    strokeWeight(0.5);
+    line(0, corrY, canvasW, corrY);
+    line(0, corrY + CORRIDOR_H, canvasW, corrY + CORRIDOR_H);
     noStroke();
-    textAlign(CENTER, CENTER);
-    textSize(9);
-    text('— doorgang —', canvasW / 2, corrY + CORRIDOR_H / 2);
   }
-  noStroke();
 }
 
 // Set left panel heights to match floorH (corridors are canvas-only, not in panels)
@@ -866,8 +930,8 @@ function draw() {
   }
   allCells = allCells.filter(c => !c.isDead);
 
-  // Ecosystem safety net: prevent total extinction (every 5 seconds)
-  if (frameCount % 300 === 0) checkMinPopulation();
+  // Ecosystem safety net: prevent total extinction (every 3 seconds)
+  if (frameCount % 180 === 0) checkMinPopulation();
 
   // Update DOM panels every 60 frames (~1s)
   domUpdateTimer++;
