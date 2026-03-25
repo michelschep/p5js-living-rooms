@@ -144,52 +144,90 @@ class BaseCell {
     }
   }
 
-  // Keep cell within its room bounds; bounce off walls
+  // Keep cell within its room bounds; bounce off walls.
+  // Door zones in top/bottom edges allow cells to pass through instead of bouncing.
   bounceInRoom() {
     const roomCfg = this.getRoomConfig();
     if (!roomCfg) return;
-    const b = roomCfg.bounds;
+    const b      = roomCfg.bounds;
     const margin = this.cellSize;
 
+    // Left / right walls always bounce
     if (this.posX < b.x + margin)       { this.posX = b.x + margin;       this.velX *= -1; }
     if (this.posX > b.x + b.w - margin) { this.posX = b.x + b.w - margin; this.velX *= -1; }
-    if (this.posY < b.y + margin)       { this.posY = b.y + margin;        this.velY *= -1; }
-    if (this.posY > b.y + b.h - margin) { this.posY = b.y + b.h - margin;  this.velY *= -1; }
+
+    // Top edge — bounce unless cell is inside a door X-zone
+    if (this.posY < b.y + margin) {
+      if (!this.isInDoorXZone('top')) {
+        this.posY = b.y + margin;
+        this.velY *= -1;
+      }
+    }
+
+    // Bottom edge — bounce unless cell is inside a door X-zone
+    if (this.posY > b.y + b.h - margin) {
+      if (!this.isInDoorXZone('bottom')) {
+        this.posY = b.y + b.h - margin;
+        this.velY *= -1;
+      }
+    }
   }
 
-  // Check if cell is inside a doorway zone and migrate to adjacent floor
-  checkDoorMigration() {
-    if (!appConfig || !appConfig.doors) return;
-    const roomCfg = this.getRoomConfig();
-    const migrationChance = 0.003 + (roomCfg && roomCfg.hasMotion() ? 0.01 : 0);
-
+  // Returns true when this cell is horizontally inside a doorway opening at the
+  // given vertical edge ('top' or 'bottom') of its current floor.
+  isInDoorXZone(edge) {
+    if (!appConfig || !appConfig.doors) return false;
     for (const door of appConfig.doors) {
       const di = doorInfo(door.fromFloor, door.toFloor, door.positionFraction);
-      const inDoorX = this.posX >= di.x && this.posX <= di.x + di.w;
-      // lowerFloor = lower floor number = physically at bottom (higher Y on canvas)
-      // Cell on lowerFloor migrates when near the TOP edge of its room (y ≈ floorTopY(lowerFloor))
-      // Cell on upperFloor migrates when near the BOTTOM edge of its room (y ≈ floorTopY(upperFloor)+FLOOR_H)
-      const nearDoorEdge =
-        (this.floorNum === di.lowerFloor && abs(this.posY - floorTopY(di.lowerFloor)) < 12) ||
-        (this.floorNum === di.upperFloor && abs(this.posY - (floorTopY(di.upperFloor) + FLOOR_H)) < 12);
+      // lowerFloor (lower floor number) connects at its TOP edge
+      // upperFloor (higher floor number) connects at its BOTTOM edge
+      const edgeMatches =
+        (edge === 'top'    && this.floorNum === di.lowerFloor) ||
+        (edge === 'bottom' && this.floorNum === di.upperFloor);
+      if (edgeMatches && this.posX >= di.x && this.posX <= di.x + di.w) return true;
+    }
+    return false;
+  }
 
-      if (inDoorX && nearDoorEdge && random() < migrationChance) {
-        const targetFloor    = (this.floorNum === di.lowerFloor) ? di.upperFloor : di.lowerFloor;
-        const originalFloor  = this.floorNum;
-        const targetRoom     = roomDataList.find(r => r.floorNum === targetFloor);
-        if (targetRoom) {
-          this.roomId   = targetRoom.id;
-          this.floorNum = targetRoom.floorNum;
-          const tb      = targetRoom.bounds;
-          this.posX     = di.centreX + random(-8, 8);
-          // Going up (floor N → N+1): appear near bottom of upper room (close to the door gap)
-          // Going down (floor N → N-1): appear near top of lower room (close to the door gap)
-          this.posY = (targetFloor > originalFloor)
-            ? tb.y + tb.h - CELL_RADIUS - 4
-            : tb.y + CELL_RADIUS + 4;
-        }
-        break;
+  // Teleport cell to adjacent floor when it has drifted into the gap zone.
+  // This runs AFTER bounceInRoom so only cells that passed the door edge reach here.
+  checkDoorMigration() {
+    if (!appConfig || !appConfig.doors) return;
+
+    for (const door of appConfig.doors) {
+      const di       = doorInfo(door.fromFloor, door.toFloor, door.positionFraction);
+      const gapTop   = di.y;              // top of gap    = bottom of upperFloor room
+      const gapBot   = di.y + BORDER_H;  // bottom of gap = top of lowerFloor room
+
+      // Cell must be horizontally inside the doorway
+      if (this.posX < di.x || this.posX > di.x + di.w) continue;
+
+      // Cell must have entered the gap zone between the two floors
+      if (this.posY < gapTop || this.posY > gapBot) continue;
+
+      // Determine target floor from direction of travel
+      let targetFloor;
+      if (this.floorNum === di.lowerFloor) {
+        targetFloor = di.upperFloor;   // moving up (toward lower Y)
+      } else if (this.floorNum === di.upperFloor) {
+        targetFloor = di.lowerFloor;   // moving down (toward higher Y)
+      } else {
+        continue; // cell somehow from a different floor — skip
       }
+
+      const originalFloor = this.floorNum;
+      const targetRoom    = roomDataList.find(r => r.floorNum === targetFloor);
+      if (!targetRoom) continue;
+
+      this.roomId   = targetRoom.id;
+      this.floorNum = targetRoom.floorNum;
+      const tb      = targetRoom.bounds;
+      this.posX     = constrain(this.posX, tb.x + this.cellSize + 2, tb.x + tb.w - this.cellSize - 2);
+      // Place cell just inside the target room, adjacent to the door gap
+      this.posY = (targetFloor > originalFloor)
+        ? tb.y + tb.h - this.cellSize - 3   // going up   → appear at bottom of upper room
+        : tb.y + this.cellSize + 3;          // going down → appear at top of lower room
+      break;
     }
   }
 
