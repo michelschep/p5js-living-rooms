@@ -12,11 +12,11 @@
 // Layout — computed responsively in setup() / windowResized()
 // ---------------------------------------------------------------------------
 let canvasW  = 700;
-let floorH   = 210;
-let canvasH  = 630;
+let floorH   = 180;   // slightly shorter floors → relative corridor is larger
+let canvasH  = 700;
 
-const CORRIDOR_H  = 40;   // visible open corridor between floors (wider = easier passage)
-const MIN_FLOOR_H = 140;
+const CORRIDOR_H  = 90;   // wide open passage — cells cross floors naturally
+const MIN_FLOOR_H = 120;
 
 function recomputeLayout() {
   // Leave 200px for side panels + 6px gap on ≥560px screens
@@ -26,7 +26,7 @@ function recomputeLayout() {
   } else {
     canvasW = Math.min(availW, 700);
   }
-  floorH  = canvasW < 400 ? MIN_FLOOR_H : 210;
+  floorH  = canvasW < 400 ? MIN_FLOOR_H : 180;
   canvasH = 3 * floorH + 2 * CORRIDOR_H;  // corridors add height
 }
 
@@ -200,7 +200,7 @@ class CellPlant extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.15, 0.008); // nearly stationary
+    this.baseUpdate(0.15, 0.020); // nearly stationary but more drift
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
@@ -284,7 +284,7 @@ class CellHerbivore extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.45, 0.018);
+    this.baseUpdate(0.45, 0.035); // more drift → wanders between floors
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
@@ -353,7 +353,7 @@ class CellPredator extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.60, 0.012);
+    this.baseUpdate(0.60, 0.028); // predator wanders, hunts across floors
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
@@ -412,7 +412,7 @@ class CellDecomposer extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.22, 0.010);
+    this.baseUpdate(0.22, 0.022); // decomposer drifts enough to find dead cells
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
@@ -512,7 +512,7 @@ class CellFungus extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.12, 0.008); // nearly stationary
+    this.baseUpdate(0.12, 0.012); // fungus barely moves but can creep
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
