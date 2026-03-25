@@ -801,8 +801,9 @@ function fallbackConfig() {
 // ---------------------------------------------------------------------------
 // Draw helpers
 // ---------------------------------------------------------------------------
-// Single background color for all floors and corridors
-const FLOOR_BG = [25, 35, 45];  // dark blue-grey, same everywhere
+// Single background color for all floors; corridors slightly darker
+const FLOOR_BG    = [25, 35, 45];
+const CORRIDOR_BG = [12, 18, 25];
 
 function drawRoomBackground(rc) {
   const b = rc.bounds;
@@ -812,10 +813,10 @@ function drawRoomBackground(rc) {
 }
 
 function drawFloorDividers() {
-  // Corridors same color as rooms — seamless
+  // Both corridors: same darker background color
   for (let f = 1; f <= 2; f++) {
     const corrY = floorTopY(f) + floorH;
-    fill(FLOOR_BG[0], FLOOR_BG[1], FLOOR_BG[2]);
+    fill(CORRIDOR_BG[0], CORRIDOR_BG[1], CORRIDOR_BG[2]);
     noStroke();
     rect(0, corrY, canvasW, CORRIDOR_H);
     stroke(255, 255, 255, 20);
