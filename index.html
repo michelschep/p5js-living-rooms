@@ -20,7 +20,7 @@
     }
 
     h1 {
-      font-size: clamp(13px, 3vw, 18px);
+      font-size: clamp(12px, 3vw, 17px);
       letter-spacing: 3px;
       color: #7ec8a0;
       margin-bottom: 8px;
@@ -28,66 +28,88 @@
       text-align: center;
     }
 
+    /* ── Main row: panels LEFT + canvas RIGHT ── */
+    #simulation-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      width: 100%;
+      max-width: 1140px;
+    }
+
+    #panels-column {
+      display: flex;
+      flex-direction: column;
+      width: 190px;
+      flex-shrink: 0;
+      gap: 1px;          /* 1px gap matches floor divider line in canvas */
+    }
+
     #canvas-container canvas {
       display: block;
-      max-width: 100%;
     }
 
-    /* ── Metrics panels ── */
-    #metrics-container {
-      width: 100%;
-      max-width: 900px;
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    @media (max-width: 600px) {
-      #metrics-container { grid-template-columns: 1fr; }
-    }
-
+    /* ── Floor panels ── */
     .floor-panel {
       background: #111;
-      border: 1px solid #222;
-      border-radius: 6px;
-      padding: 8px 10px;
-      font-size: clamp(10px, 2.5vw, 12px);
+      border: 1px solid #1e2e1e;
+      border-radius: 4px;
+      padding: 6px 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      /* height is set via JS to match floorH */
     }
 
     .floor-panel h3 {
       color: #7ec8a0;
-      font-size: clamp(11px, 2.8vw, 13px);
-      margin-bottom: 5px;
-      border-bottom: 1px solid #222;
-      padding-bottom: 4px;
+      font-size: clamp(10px, 2.5vw, 12px);
+      border-bottom: 1px solid #1e2e1e;
+      padding-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .sensor-row {
-      color: #aaa;
-      margin: 2px 0;
       display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 1px;
     }
 
-    .sensor-val { color: #ddd; }
+    .sensor-val {
+      color: #bbb;
+      font-size: clamp(9px, 2.2vw, 11px);
+      white-space: nowrap;
+    }
 
     .count-row {
-      margin-top: 5px;
       display: flex;
-      gap: 8px;
       flex-wrap: wrap;
+      gap: 4px;
+      margin-top: auto;
     }
 
-    .count-item { font-size: clamp(10px, 2.5vw, 12px); }
+    .count-item {
+      font-size: clamp(9px, 2.2vw, 11px);
+    }
 
-    /* ── Legend + status ── */
+    /* ── Status + legend ── */
     #status-bar {
       margin-top: 6px;
       font-size: clamp(9px, 2vw, 11px);
-      color: #444;
+      color: #555;
       text-align: center;
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    #countdown-text {
+      color: #7ec8a0;
+      font-weight: bold;
     }
 
     .legend {
@@ -95,7 +117,7 @@
       flex-wrap: wrap;
       justify-content: center;
       gap: 10px;
-      margin-top: 8px;
+      margin-top: 6px;
       font-size: clamp(9px, 2vw, 11px);
     }
 
@@ -106,36 +128,64 @@
     }
 
     .legend-dot {
-      width: 11px;
-      height: 11px;
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
       flex-shrink: 0;
+    }
+
+    /* ── Mobile: stack vertically ── */
+    @media (max-width: 560px) {
+      #simulation-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      #panels-column {
+        width: 100%;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .floor-panel {
+        flex: 1;
+        min-width: 110px;
+        height: auto !important;
+      }
     }
   </style>
 </head>
 <body>
   <h1>🏠 Living Rooms — Cellular Life</h1>
-  <div id="canvas-container"></div>
 
-  <div id="metrics-container">
-    <div class="floor-panel" id="panel-floor3">
-      <h3>Tweede verdieping</h3>
-      <div class="sensor-row" id="sensors-floor3">—</div>
-      <div class="count-row"  id="counts-floor3">—</div>
+  <div id="simulation-row">
+    <div id="panels-column">
+
+      <div class="floor-panel" id="panel-floor3">
+        <h3>Tweede verdieping</h3>
+        <div class="sensor-row" id="sensors-floor3"><span class="sensor-val">—</span></div>
+        <div class="count-row"  id="counts-floor3">—</div>
+      </div>
+
+      <div class="floor-panel" id="panel-floor2">
+        <h3>Eerste verdieping</h3>
+        <div class="sensor-row" id="sensors-floor2"><span class="sensor-val">—</span></div>
+        <div class="count-row"  id="counts-floor2">—</div>
+      </div>
+
+      <div class="floor-panel" id="panel-floor1">
+        <h3>Begane grond</h3>
+        <div class="sensor-row" id="sensors-floor1"><span class="sensor-val">—</span></div>
+        <div class="count-row"  id="counts-floor1">—</div>
+      </div>
+
     </div>
-    <div class="floor-panel" id="panel-floor2">
-      <h3>Eerste verdieping</h3>
-      <div class="sensor-row" id="sensors-floor2">—</div>
-      <div class="count-row"  id="counts-floor2">—</div>
-    </div>
-    <div class="floor-panel" id="panel-floor1">
-      <h3>Begane grond</h3>
-      <div class="sensor-row" id="sensors-floor1">—</div>
-      <div class="count-row"  id="counts-floor1">—</div>
-    </div>
+    <div id="canvas-container"></div>
   </div>
 
-  <div id="status-bar">Laden van kamerdata…</div>
+  <div id="status-bar">
+    <span id="status-text">Laden van kamerdata…</span>
+    <span id="countdown-text"></span>
+  </div>
 
   <div class="legend">
     <div class="legend-item"><div class="legend-dot" style="background:#4daf5e"></div> Plant</div>

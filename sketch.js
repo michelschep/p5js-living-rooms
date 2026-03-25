@@ -11,18 +11,22 @@
 // ---------------------------------------------------------------------------
 // Layout — computed responsively in setup() / windowResized()
 // ---------------------------------------------------------------------------
-let canvasW  = 900;
+let canvasW  = 700;
 let floorH   = 210;
-let canvasH  = 680;
+let canvasH  = 630;
 
-const BORDER_H  = 22;   // gap between floors (door zone)
-const DOOR_W    = 50;   // door opening width
 const MIN_FLOOR_H = 140;
 
 function recomputeLayout() {
-  canvasW = Math.min(windowWidth - 16, 900);
-  floorH  = canvasW < 560 ? MIN_FLOOR_H : 210;
-  canvasH = 3 * floorH + 2 * BORDER_H;
+  // Leave 200px for side panels + 6px gap on ≥560px screens
+  const availW = windowWidth - 16;
+  if (availW >= 560) {
+    canvasW = Math.min(availW - 200 - 14, 700); // panels=190 + gap=6 + padding
+  } else {
+    canvasW = Math.min(availW, 700);
+  }
+  floorH  = canvasW < 400 ? MIN_FLOOR_H : 210;
+  canvasH = 3 * floorH;   // no door gaps — fully open space
 }
 
 // ---------------------------------------------------------------------------
@@ -51,23 +55,11 @@ let domUpdateTimer = 0;
 // ---------------------------------------------------------------------------
 function floorTopY(floorNum) {
   // Floor 3 → top (row 0), Floor 1 → bottom (row 2)
-  return (3 - floorNum) * (floorH + BORDER_H);
+  return (3 - floorNum) * floorH;
 }
 
 function floorBounds(floorNum) {
   return { x: 0, y: floorTopY(floorNum), w: canvasW, h: floorH };
-}
-
-function doorInfo(fromFloor, toFloor, posFraction) {
-  const lo     = Math.min(fromFloor, toFloor);
-  const gapY   = floorTopY(lo) - BORDER_H;           // top of gap
-  const centreX = canvasW * posFraction;
-  return {
-    x: centreX - DOOR_W / 2, y: gapY,
-    w: DOOR_W, h: BORDER_H,
-    centreX, centreY: gapY + BORDER_H / 2,
-    lowerFloor: lo, upperFloor: lo + 1
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -144,56 +136,24 @@ class BaseCell {
     }
   }
 
-  // Bounce off room walls, but let cells through door zones
-  bounceInRoom() {
-    const rc = this.getRoomConfig();
-    if (!rc) return;
-    const b  = rc.bounds;
+  // Bounce only off canvas outer edges — floors are open space
+  bounceCanvas() {
     const mg = this.cellSize;
-
-    if (this.posX < b.x + mg)       { this.posX = b.x + mg;       this.velX *= -1; }
-    if (this.posX > b.x + b.w - mg) { this.posX = b.x + b.w - mg; this.velX *= -1; }
-
-    if (this.posY < b.y + mg && !this.isInDoorZone('top'))    { this.posY = b.y + mg;       this.velY *= -1; }
-    if (this.posY > b.y + b.h - mg && !this.isInDoorZone('bottom')) { this.posY = b.y + b.h - mg; this.velY *= -1; }
+    if (this.posX < mg)           { this.posX = mg;           this.velX *= -1; }
+    if (this.posX > canvasW - mg) { this.posX = canvasW - mg; this.velX *= -1; }
+    if (this.posY < mg)           { this.posY = mg;           this.velY *= -1; }
+    if (this.posY > canvasH - mg) { this.posY = canvasH - mg; this.velY *= -1; }
   }
 
-  isInDoorZone(edge) {
-    if (!appConfig?.doors) return false;
-    for (const d of appConfig.doors) {
-      const di = doorInfo(d.fromFloor, d.toFloor, d.positionFraction);
-      const edgeOk = (edge === 'top' && this.floorNum === di.lowerFloor) ||
-                     (edge === 'bottom' && this.floorNum === di.upperFloor);
-      if (edgeOk && this.posX >= di.x && this.posX <= di.x + di.w) return true;
-    }
-    return false;
-  }
-
-  checkDoorMigration() {
-    if (!appConfig?.doors) return;
-    for (const d of appConfig.doors) {
-      const di = doorInfo(d.fromFloor, d.toFloor, d.positionFraction);
-      if (this.posX < di.x || this.posX > di.x + di.w) continue;
-      const inGap = this.posY >= di.y && this.posY <= di.y + di.h;
-      if (!inGap) continue;
-
-      let targetFloor;
-      if (this.floorNum === di.lowerFloor)      targetFloor = di.upperFloor;
-      else if (this.floorNum === di.upperFloor) targetFloor = di.lowerFloor;
-      else continue;
-
-      const origFloor  = this.floorNum;
-      const targetRoom = roomDataList.find(r => r.floorNum === targetFloor);
-      if (!targetRoom) continue;
-
-      this.roomId   = targetRoom.id;
-      this.floorNum = targetRoom.floorNum;
-      const tb      = targetRoom.bounds;
-      this.posX     = constrain(this.posX, tb.x + this.cellSize + 2, tb.x + tb.w - this.cellSize - 2);
-      this.posY     = (targetFloor > origFloor)
-        ? tb.y + tb.h - this.cellSize - 3
-        : tb.y + this.cellSize + 3;
-      break;
+  // Update room membership based on current Y position
+  updateRoomByPosition() {
+    for (const rc of roomDataList) {
+      const b = rc.bounds;
+      if (this.posY >= b.y && this.posY < b.y + b.h) {
+        this.roomId   = rc.id;
+        this.floorNum = rc.floorNum;
+        return;
+      }
     }
   }
 
@@ -209,8 +169,8 @@ class BaseCell {
     this.limitVel(maxSpd);
     this.posX += this.velX;
     this.posY += this.velY;
-    this.bounceInRoom();
-    this.checkDoorMigration();
+    this.bounceCanvas();
+    this.updateRoomByPosition();
     if (this.energy <= 0 || this.age >= this.lifespan) this.isDead = true;
   }
 }
@@ -583,10 +543,10 @@ function spawnFungusNear(roomCfg, parent) {
   if (roomCells.length >= MAX_CELLS_ROOM) return;
   const child = new CellFungus(roomCfg);
   const ang   = random(TWO_PI);
-  const dist  = parent.cellSize * 2 + random(4, 12);
-  child.posX  = constrain(parent.posX + cos(ang) * dist, 8, canvasW - 8);
-  child.posY  = constrain(parent.posY + sin(ang) * dist,
-    roomCfg.bounds.y + 8, roomCfg.bounds.y + floorH - 8);
+  const spDist = parent.cellSize * 2 + random(4, 12);
+  child.posX  = constrain(parent.posX + cos(ang) * spDist, 8, canvasW - 8);
+  child.posY  = constrain(parent.posY + sin(ang) * spDist,
+    roomCfg.bounds.y + 8, roomCfg.bounds.y + roomCfg.bounds.h - 8);
   child.energy = 60;
   allCells.push(child);
 }
@@ -627,7 +587,7 @@ function loadRoomsData() {
       }
       lastRefreshMs = millis();
       refreshSecs   = data.refreshIntervalMs / 1000;
-      document.getElementById('status-bar').textContent =
+      document.getElementById('status-text').textContent =
         '✅ Data geladen — ' + new Date().toLocaleTimeString('nl-NL');
     })
     .catch(() => {
@@ -637,7 +597,7 @@ function loadRoomsData() {
         seedPopulation();
         dataLoaded   = true;
         lastRefreshMs = millis();
-        document.getElementById('status-bar').textContent = '⚠️ Offline — demo data';
+        document.getElementById('status-text').textContent = '⚠️ Offline — demo data';
       }
     });
 }
@@ -669,24 +629,22 @@ function drawRoomBackground(rc) {
   rect(b.x, b.y, b.w, b.h);
 }
 
-function drawDoors() {
-  if (!appConfig?.doors) return;
-  for (const d of appConfig.doors) {
-    const di = doorInfo(d.fromFloor, d.toFloor, d.positionFraction);
-    // Whole gap: dark wall
-    fill(6, 6, 6);
-    noStroke();
-    rect(0, di.y, canvasW, di.h);
-    // Door opening
-    fill(28, 45, 28, 200);
-    noStroke();
-    rect(di.x, di.y, di.w, di.h);
-    // Frame lines
-    stroke(60, 100, 60, 150);
-    strokeWeight(1);
-    line(di.x, di.y, di.x, di.y + di.h);
-    line(di.x + di.w, di.y, di.x + di.w, di.y + di.h);
-    noStroke();
+function drawFloorDividers() {
+  // Subtle separator lines between floors (visual only, not physical)
+  stroke(30, 50, 30, 140);
+  strokeWeight(1);
+  for (let f = 1; f <= 2; f++) {
+    const divY = floorTopY(f) + floorH; // bottom of floor f = top of floor f-1
+    line(0, divY, canvasW, divY);
+  }
+  noStroke();
+}
+
+// Set left panel heights to match floorH
+function updatePanelHeights() {
+  for (let f = 1; f <= 3; f++) {
+    const el = document.getElementById('panel-floor' + f);
+    if (el) el.style.height = floorH + 'px';
   }
 }
 
@@ -732,12 +690,14 @@ function setup() {
   recomputeLayout();
   const cnv = createCanvas(canvasW, canvasH);
   cnv.parent('canvas-container');
+  updatePanelHeights();
   loadRoomsData();
 }
 
 function windowResized() {
   recomputeLayout();
   resizeCanvas(canvasW, canvasH);
+  updatePanelHeights();
 }
 
 function draw() {
@@ -757,7 +717,7 @@ function draw() {
   background(10, 10, 10);
 
   for (const rc of roomDataList) drawRoomBackground(rc);
-  drawDoors();
+  drawFloorDividers();
 
   // Dead cells
   for (const dc of deadCells) { dc.update(); dc.draw(); }
@@ -776,5 +736,13 @@ function draw() {
   if (domUpdateTimer >= 60) {
     updateDomPanels();
     domUpdateTimer = 0;
+  }
+
+  // Countdown update every second
+  if (frameCount % 60 === 0) {
+    const interval = appConfig?.refreshIntervalMs ?? 180000;
+    const secsLeft = Math.max(0, Math.round((interval - (millis() - lastRefreshMs)) / 1000));
+    const cdEl = document.getElementById('countdown-text');
+    if (cdEl) cdEl.textContent = '⏱ refresh over ' + secsLeft + 's';
   }
 }
