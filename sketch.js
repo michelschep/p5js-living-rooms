@@ -358,11 +358,11 @@ class CellPredator extends BaseCell {
     const rc = this.getRoomConfig();
     if (!rc) return;
 
-    // Warm rooms help predators; mild energy drain
-    this.energy += rc.normTemp() * 0.05 - 0.015;
+    // Warm rooms help predators; cold rooms punish harder
+    this.energy += rc.normTemp() * 0.05 - 0.025;
     this.energy  = constrain(this.energy, 0, 160);
 
-    let prey = null, preyDist = 80;  // narrower hunt range: herbivores have more hiding room
+    let prey = null, preyDist = 80;
     for (const c of allCells) {
       if (c.cellType !== 'herbivore' || c.isDead) continue;
       const d = dist(this.posX, this.posY, c.posX, c.posY);
@@ -371,12 +371,15 @@ class CellPredator extends BaseCell {
     if (prey) {
       const dx = prey.posX - this.posX, dy = prey.posY - this.posY;
       const mg = sqrt(dx * dx + dy * dy) || 1;
-      this.velX += (dx / mg) * 0.20;  // gentler pursuit — herbivores can flee
+      this.velX += (dx / mg) * 0.20;
       this.velY += (dy / mg) * 0.20;
       if (preyDist < this.cellSize + prey.cellSize + 1) {
         prey.isDead  = true;
         this.energy += 60;
       }
+    } else {
+      // No prey visible — extra starvation drain
+      this.energy -= 0.025;
     }
     if (this.energy > 120 && random() < 0.003) { spawnCell('predator', rc); this.energy -= 55; }
   }
@@ -417,7 +420,7 @@ class CellDecomposer extends BaseCell {
     const rc = this.getRoomConfig();
     if (!rc) return;
 
-    this.energy += rc.normHumidity() * 0.14 + rc.normCo2() * 0.10 - 0.03;
+    this.energy += rc.normHumidity() * 0.07 + rc.normCo2() * 0.05 - 0.03;
     this.energy  = constrain(this.energy, 0, 130);
 
     let target = null, targetDist = 70;
@@ -434,9 +437,9 @@ class CellDecomposer extends BaseCell {
       if (targetDist < this.cellSize + 4) { target.decayLife = 0; this.energy += 32; }
     }
 
-    if (this.energy > 105 && rc.normHumidity() > 0.40 && random() < 0.003) {
+    if (this.energy > 120 && rc.normHumidity() > 0.55 && random() < 0.0008) {
       spawnCell('decomposer', rc);
-      this.energy -= 30;
+      this.energy -= 40;
     }
   }
 
@@ -518,7 +521,7 @@ class CellFungus extends BaseCell {
     if (!rc) return;
 
     // Thrives on humidity, CO2, and mild temperature
-    this.energy += rc.normHumidity() * 0.22 + rc.normCo2() * 0.10 - 0.03;
+    this.energy += rc.normHumidity() * 0.10 + rc.normCo2() * 0.05 - 0.03;
     // Eats nearby plants (absorbs nutrients)
     for (const c of allCells) {
       if ((c.cellType !== 'plant') || c.roomId !== this.roomId || c.isDead) continue;
@@ -622,15 +625,25 @@ function makeCell(cellTypeName, roomCfg) {
   }
 }
 
+// Global soft cap per species — prevents any one type from monopolising
+const MAX_SPECIES_GLOBAL = {
+  plant: 70, herbivore: 45, predator: 18, decomposer: 35, fungus: 30
+};
+
 function spawnCell(cellTypeName, roomCfg) {
   const roomCells = allCells.filter(c => c.roomId === roomCfg.id);
   if (roomCells.length >= MAX_CELLS_ROOM) return;
+  const globalCap   = MAX_SPECIES_GLOBAL[cellTypeName] ?? 60;
+  const globalCount = allCells.filter(c => c.cellType === cellTypeName).length;
+  if (globalCount >= globalCap) return;
   allCells.push(makeCell(cellTypeName, roomCfg));
 }
 
 function spawnFungusNear(roomCfg, parent) {
   const roomCells = allCells.filter(c => c.roomId === roomCfg.id);
   if (roomCells.length >= MAX_CELLS_ROOM) return;
+  const globalCount = allCells.filter(c => c.cellType === 'fungus').length;
+  if (globalCount >= MAX_SPECIES_GLOBAL.fungus) return;
   const child = new CellFungus(roomCfg);
   const ang   = random(TWO_PI);
   const spDist = parent.cellSize * 2 + random(4, 12);
@@ -664,13 +677,15 @@ function checkMinPopulation() {
     if (c.cellType === 'herbivore') cntH++;
     if (c.cellType === 'predator')  cntPr++;
   }
-  // Spawn into a random room when critically low
-  for (const rc of roomDataList) {
-    if (cntP  < 12) { for (let i = 0; i < 3; i++) allCells.push(makeCell('plant',     rc)); }
-    if (cntH  < 6)  { for (let i = 0; i < 2; i++) allCells.push(makeCell('herbivore', rc)); }
-    if (cntPr < 3)  {                               allCells.push(makeCell('predator',  rc)); }
-    break; // only spawn into first room to avoid flooding
-  }
+
+  // Find the room with the most plants — best place to seed herbivores
+  const roomWithPlants = roomDataList
+    .map(rc => ({ rc, cnt: allCells.filter(c => c.cellType === 'plant' && c.roomId === rc.id).length }))
+    .sort((a, b) => b.cnt - a.cnt)[0]?.rc ?? roomDataList[0];
+
+  if (cntP  < 15) { for (let i = 0; i < 4; i++) allCells.push(makeCell('plant',     roomWithPlants)); }
+  if (cntH  < 8)  { for (let i = 0; i < 3; i++) allCells.push(makeCell('herbivore', roomWithPlants)); }
+  if (cntPr < 3)  {                               allCells.push(makeCell('predator',  roomWithPlants)); }
 }
 
 // ---------------------------------------------------------------------------
