@@ -802,10 +802,26 @@ function fallbackConfig() {
 // Draw helpers
 // ---------------------------------------------------------------------------
 function drawRoomBackground(rc) {
-  const b         = rc.bounds;
-  const tTemp     = rc.normTemp();
-  const tLight    = rc.normLight();
-  fill(12 + tTemp * 18, 14 + tLight * 14, 18 + (1 - tTemp) * 12);
+  const b      = rc.bounds;
+  const tTemp  = rc.normTemp();
+  const tLight = rc.normLight();
+  const tHum   = rc.normHumidity();
+
+  // Light = primary brightness driver (5=pitch dark, 135=well lit)
+  const base = 5 + tLight * 130;
+
+  // Warm rooms → amber/orange tint; cold rooms → blue tint
+  const warmBias = tTemp * 55;
+  const coolBias = (1 - tTemp) * 50;
+
+  // Humid rooms → slight green-blue (damp feel)
+  const humBias = tHum * 22;
+
+  const rCh = constrain(base + warmBias - humBias * 0.4, 0, 255);
+  const gCh = constrain(base - warmBias * 0.15 + humBias * 0.7, 0, 255);
+  const bCh = constrain(base + coolBias + humBias * 0.5, 0, 255);
+
+  fill(rCh, gCh, bCh);
   noStroke();
   rect(b.x, b.y, b.w, b.h);
 }
@@ -818,13 +834,22 @@ function drawFloorDividers() {
     if (!rcLow || !rcHigh) continue;
     const corrY = floorTopY(f) + floorH;
 
-    // Draw gradient: sample across corridor height
-    const steps = 8;
+    // Draw gradient: sample across corridor height using same color formula
+    const steps = 10;
     for (let i = 0; i < steps; i++) {
-      const t  = i / steps;
-      const tT = rcLow.normTemp()  + (rcHigh.normTemp()  - rcLow.normTemp())  * t;
-      const tL = rcLow.normLight() + (rcHigh.normLight() - rcLow.normLight()) * t;
-      fill(12 + tT * 18, 14 + tL * 14, 18 + (1 - tT) * 12);
+      const t   = i / steps;
+      const tT  = rcLow.normTemp()     + (rcHigh.normTemp()     - rcLow.normTemp())     * t;
+      const tL  = rcLow.normLight()    + (rcHigh.normLight()    - rcLow.normLight())    * t;
+      const tH  = rcLow.normHumidity() + (rcHigh.normHumidity() - rcLow.normHumidity()) * t;
+      const base = 5 + tL * 130;
+      const warmBias = tT * 55;
+      const coolBias = (1 - tT) * 50;
+      const humBias  = tH * 22;
+      fill(
+        constrain(base + warmBias - humBias * 0.4, 0, 255),
+        constrain(base - warmBias * 0.15 + humBias * 0.7, 0, 255),
+        constrain(base + coolBias + humBias * 0.5, 0, 255)
+      );
       noStroke();
       rect(0, corrY + (i / steps) * CORRIDOR_H, canvasW, CORRIDOR_H / steps + 1);
     }
