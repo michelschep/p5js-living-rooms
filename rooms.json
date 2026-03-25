@@ -30,11 +30,11 @@
       "name": "Tweede verdieping",
       "floor": 3,
       "sensors": {
-        "temperature": 18,
+        "temperature": 16,
         "humidity": 50,
         "light": 10,
         "motion": false,
-        "co2": 650
+        "co2": 800
       }
     }
   ],
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T16:50:44Z"
+  "lastUpdated": "2026-03-25T16:51:43Z"
 }
