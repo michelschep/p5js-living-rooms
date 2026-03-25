@@ -801,49 +801,47 @@ function fallbackConfig() {
 // ---------------------------------------------------------------------------
 // Draw helpers
 // ---------------------------------------------------------------------------
+// Fixed colors per floor: each floor always has its own distinct color
+const FLOOR_COLORS = {
+  1: [55, 40, 25],   // begane grond: warm dark wood / terracotta
+  2: [30, 40, 60],   // eerste verdieping: cool slate blue
+  3: [15, 25, 50],   // tweede verdieping: dark cold navy
+};
+
+function floorColor(floorNum) {
+  return FLOOR_COLORS[floorNum] || [30, 30, 30];
+}
+
 function drawRoomBackground(rc) {
-  const b   = rc.bounds;
-  const tT  = rc.normTemp();
-  const tL  = rc.normLight();
-  const tH  = rc.normHumidity();
-
-  // Temperature and humidity drive color even when lux is the same across floors.
-  // Warm=red/orange, cold=blue, humid=green-blue, bright=adds overall lightness.
-  const brightness = 20 + tL * 80;  // light adds brightness but isn't the only factor
-  const rCh = constrain(brightness + tT * 120 + (1 - tH) * 40, 0, 255);
-  const gCh = constrain(brightness + tH * 80  - tT * 30, 0, 255);
-  const bCh = constrain(brightness + (1 - tT) * 130 + tH * 60, 0, 255);
-
-  fill(rCh, gCh, bCh);
+  const b = rc.bounds;
+  const [r, g, b_] = floorColor(rc.floorNum);
+  fill(r, g, b_);
   noStroke();
   rect(b.x, b.y, b.w, b.h);
 }
 
 function drawFloorDividers() {
-  // Draw corridors as blended gradient between adjacent room colors
+  // Draw corridors as gradient between the two adjacent fixed floor colors
   for (let f = 1; f <= 2; f++) {
     const rcLow  = roomDataList.find(r => r.floorNum === f);
     const rcHigh = roomDataList.find(r => r.floorNum === f + 1);
     if (!rcLow || !rcHigh) continue;
     const corrY = floorTopY(f) + floorH;
 
-    // Draw gradient: sample across corridor height using same color formula
+    const [r1, g1, b1] = floorColor(f);
+    const [r2, g2, b2] = floorColor(f + 1);
+
     const steps = 10;
     for (let i = 0; i < steps; i++) {
-      const t   = i / steps;
-      const tT  = rcLow.normTemp()     + (rcHigh.normTemp()     - rcLow.normTemp())     * t;
-      const tL  = rcLow.normLight()    + (rcHigh.normLight()    - rcLow.normLight())    * t;
-      const tH  = rcLow.normHumidity() + (rcHigh.normHumidity() - rcLow.normHumidity()) * t;
-      const brightness = 20 + tL * 80;
+      const t = i / steps;
       fill(
-        constrain(brightness + tT * 120 + (1 - tH) * 40, 0, 255),
-        constrain(brightness + tH * 80  - tT * 30, 0, 255),
-        constrain(brightness + (1 - tT) * 130 + tH * 60, 0, 255)
+        lerp(r1, r2, t),
+        lerp(g1, g2, t),
+        lerp(b1, b2, t)
       );
       noStroke();
       rect(0, corrY + (i / steps) * CORRIDOR_H, canvasW, CORRIDOR_H / steps + 1);
     }
-    // Very subtle edge line
     stroke(20, 35, 20, 60);
     strokeWeight(0.5);
     line(0, corrY, canvasW, corrY);
