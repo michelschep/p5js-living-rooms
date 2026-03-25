@@ -262,18 +262,19 @@ class CellHerbivore extends BaseCell {
       }
     }
 
-    // Flee predators
+    // Flee predators more aggressively
     for (const c of allCells) {
-      if (c.cellType !== 'predator' || c.roomId !== this.roomId || c.isDead) continue;
+      if (c.cellType !== 'predator' || c.isDead) continue;
       const d = dist(this.posX, this.posY, c.posX, c.posY);
-      if (d < 80) {
-        this.velX -= (c.posX - this.posX) * 0.03;
-        this.velY -= (c.posY - this.posY) * 0.03;
+      if (d < 100) {
+        const strength = map(d, 0, 100, 0.08, 0.01);
+        this.velX -= (c.posX - this.posX) * strength;
+        this.velY -= (c.posY - this.posY) * strength;
       }
     }
 
     this.energy = constrain(this.energy - 0.02, 0, 140);
-    if (this.energy > 115 && random() < 0.003) { spawnCell('herbivore', rc); this.energy -= 40; }
+    if (this.energy > 95 && random() < 0.005) { spawnCell('herbivore', rc); this.energy -= 35; }
   }
 
   draw() {
@@ -303,7 +304,7 @@ class CellPredator extends BaseCell {
     super(roomCfg);
     this.cellType = 'predator';
     this.maxSize  = BASE_RADIUS * random(1.1, 1.7);
-    this.lifespan = random(800, 1400);
+    this.lifespan = random(3000, 6000);  // was 800-1400 (13-23s) — predators live long
   }
 
   update() {
@@ -312,27 +313,27 @@ class CellPredator extends BaseCell {
     const rc = this.getRoomConfig();
     if (!rc) return;
 
-    // Warm rooms help predators; remove heavy baseline penalty
-    this.energy += rc.normTemp() * 0.07 - 0.04;
+    // Warm rooms help predators; mild energy drain
+    this.energy += rc.normTemp() * 0.05 - 0.015;
     this.energy  = constrain(this.energy, 0, 160);
 
-    let prey = null, preyDist = 110;
+    let prey = null, preyDist = 80;  // narrower hunt range: herbivores have more hiding room
     for (const c of allCells) {
-      if (c.cellType !== 'herbivore' || c.roomId !== this.roomId || c.isDead) continue;
+      if (c.cellType !== 'herbivore' || c.isDead) continue;
       const d = dist(this.posX, this.posY, c.posX, c.posY);
       if (d < preyDist) { preyDist = d; prey = c; }
     }
     if (prey) {
       const dx = prey.posX - this.posX, dy = prey.posY - this.posY;
       const mg = sqrt(dx * dx + dy * dy) || 1;
-      this.velX += (dx / mg) * 0.35;
-      this.velY += (dy / mg) * 0.35;
+      this.velX += (dx / mg) * 0.20;  // gentler pursuit — herbivores can flee
+      this.velY += (dy / mg) * 0.20;
       if (preyDist < this.cellSize + prey.cellSize + 1) {
         prey.isDead  = true;
         this.energy += 60;
       }
     }
-    if (this.energy > 135 && random() < 0.002) { spawnCell('predator', rc); this.energy -= 55; }
+    if (this.energy > 120 && random() < 0.003) { spawnCell('predator', rc); this.energy -= 55; }
   }
 
   draw() {
@@ -552,17 +553,34 @@ function spawnFungusNear(roomCfg, parent) {
 }
 
 // ---------------------------------------------------------------------------
-// Seed initial population
+// Seed initial population — carefully balanced ratios
 // ---------------------------------------------------------------------------
 function seedPopulation() {
   allCells  = [];
   deadCells = [];
   for (const rc of roomDataList) {
-    for (const t of ['plant', 'plant', 'herbivore', 'predator', 'decomposer', 'fungus']) {
-      for (let i = 0; i < INITIAL_CELLS; i++) {
-        allCells.push(makeCell(t, rc));
-      }
-    }
+    for (let i = 0; i < 18; i++) allCells.push(makeCell('plant',      rc));
+    for (let i = 0; i < 8;  i++) allCells.push(makeCell('herbivore',  rc));
+    for (let i = 0; i < 3;  i++) allCells.push(makeCell('predator',   rc));
+    for (let i = 0; i < 6;  i++) allCells.push(makeCell('decomposer', rc));
+    for (let i = 0; i < 6;  i++) allCells.push(makeCell('fungus',     rc));
+  }
+}
+
+// Prevent full extinction: repopulate if a species drops critically low
+function checkMinPopulation() {
+  let cntP = 0, cntH = 0, cntPr = 0;
+  for (const c of allCells) {
+    if (c.cellType === 'plant')     cntP++;
+    if (c.cellType === 'herbivore') cntH++;
+    if (c.cellType === 'predator')  cntPr++;
+  }
+  // Spawn into a random room when critically low
+  for (const rc of roomDataList) {
+    if (cntP  < 12) { for (let i = 0; i < 3; i++) allCells.push(makeCell('plant',     rc)); }
+    if (cntH  < 6)  { for (let i = 0; i < 2; i++) allCells.push(makeCell('herbivore', rc)); }
+    if (cntPr < 3)  {                               allCells.push(makeCell('predator',  rc)); }
+    break; // only spawn into first room to avoid flooding
   }
 }
 
@@ -730,6 +748,9 @@ function draw() {
     if (c.isDead) deadCells.push(new DeadCell(c));
   }
   allCells = allCells.filter(c => !c.isDead);
+
+  // Ecosystem safety net: prevent total extinction (every 5 seconds)
+  if (frameCount % 300 === 0) checkMinPopulation();
 
   // Update DOM panels every 60 frames (~1s)
   domUpdateTimer++;
