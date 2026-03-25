@@ -57,7 +57,7 @@ function floorBounds(floorNum) {
 function doorInfo(fromFloor, toFloor, positionFraction) {
   const lowerFloor = Math.min(fromFloor, toFloor);
   const topOfLower = floorTopY(lowerFloor);
-  const doorY      = topOfLower - BORDER_H; // top of gap below lower floor
+  const doorY      = topOfLower - BORDER_H; // top of the gap (gap sits between upperFloor bottom and lowerFloor top)
   const doorCentreX = CANVAS_W * positionFraction;
   return {
     x: doorCentreX - DOOR_WIDTH / 2,
@@ -166,22 +166,27 @@ class BaseCell {
     for (const door of appConfig.doors) {
       const di = doorInfo(door.fromFloor, door.toFloor, door.positionFraction);
       const inDoorX = this.posX >= di.x && this.posX <= di.x + di.w;
+      // lowerFloor = lower floor number = physically at bottom (higher Y on canvas)
+      // Cell on lowerFloor migrates when near the TOP edge of its room (y ≈ floorTopY(lowerFloor))
+      // Cell on upperFloor migrates when near the BOTTOM edge of its room (y ≈ floorTopY(upperFloor)+FLOOR_H)
       const nearDoorEdge =
-        (this.floorNum === di.lowerFloor && abs(this.posY - (floorTopY(di.lowerFloor) + FLOOR_H - CELL_RADIUS)) < 10) ||
-        (this.floorNum === di.upperFloor && abs(this.posY - floorTopY(di.upperFloor)) < 10 + CELL_RADIUS);
+        (this.floorNum === di.lowerFloor && abs(this.posY - floorTopY(di.lowerFloor)) < 12) ||
+        (this.floorNum === di.upperFloor && abs(this.posY - (floorTopY(di.upperFloor) + FLOOR_H)) < 12);
 
       if (inDoorX && nearDoorEdge && random() < migrationChance) {
-        const targetFloor = (this.floorNum === di.lowerFloor) ? di.upperFloor : di.lowerFloor;
-        const targetRoom  = roomDataList.find(r => r.floorNum === targetFloor);
+        const targetFloor    = (this.floorNum === di.lowerFloor) ? di.upperFloor : di.lowerFloor;
+        const originalFloor  = this.floorNum;
+        const targetRoom     = roomDataList.find(r => r.floorNum === targetFloor);
         if (targetRoom) {
           this.roomId   = targetRoom.id;
           this.floorNum = targetRoom.floorNum;
           const tb      = targetRoom.bounds;
           this.posX     = di.centreX + random(-8, 8);
-          this.posY     = (targetFloor > this.floorNum)
-            ? tb.y + CELL_RADIUS + 4
-            : tb.y + tb.h - CELL_RADIUS - 4;
-          // Correct: re-read floorNum after assignment above is already done
+          // Going up (floor N → N+1): appear near bottom of upper room (close to the door gap)
+          // Going down (floor N → N-1): appear near top of lower room (close to the door gap)
+          this.posY = (targetFloor > originalFloor)
+            ? tb.y + tb.h - CELL_RADIUS - 4
+            : tb.y + CELL_RADIUS + 4;
         }
         break;
       }
@@ -618,18 +623,18 @@ function drawDoors() {
     // Whole gap between floors is dark
     fill(8, 8, 8);
     noStroke();
-    rect(0, di.y + FLOOR_H, CANVAS_W, BORDER_H);
+    rect(0, di.y, CANVAS_W, BORDER_H);
 
     // Door opening highlight
     fill(40, 60, 40, 180);
     noStroke();
-    rect(di.x, di.y + FLOOR_H, di.w, BORDER_H);
+    rect(di.x, di.y, di.w, BORDER_H);
 
     // Door frame lines
     stroke(80, 120, 80, 160);
     strokeWeight(1);
-    line(di.x, di.y + FLOOR_H, di.x, di.y + FLOOR_H + BORDER_H);
-    line(di.x + di.w, di.y + FLOOR_H, di.x + di.w, di.y + FLOOR_H + BORDER_H);
+    line(di.x, di.y, di.x, di.y + BORDER_H);
+    line(di.x + di.w, di.y, di.x + di.w, di.y + BORDER_H);
     noStroke();
   }
 }
