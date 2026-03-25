@@ -222,21 +222,54 @@ class CellPlant extends BaseCell {
     const rc    = this.getRoomConfig();
     const lval  = rc ? rc.normLight() : 0.5;
     const alpha = map(this.energy, 0, 130, 60, 230);
-    const pulse = this.cellSize + sin(this.age * 0.04) * 0.6;
-    noStroke();
+    const sz    = this.cellSize;
 
-    // Draw lobed plant shape
-    const lobeR = pulse * 0.65;
+    push();
+    translate(this.posX, this.posY);
+    rotate(this.age * 0.004); // very slow drift rotation
+
     for (let i = 0; i < this.lobes; i++) {
-      const ang = (i / this.lobes) * TWO_PI + this.age * 0.005;
-      const lx  = this.posX + cos(ang) * (pulse * 0.5);
-      const ly  = this.posY + sin(ang) * (pulse * 0.5);
-      fill(40 + lval * 60, 160 + lval * 50, 55, alpha);
-      ellipse(lx, ly, lobeR * 2, lobeR * 1.6);
+      const ang  = (i / this.lobes) * TWO_PI;
+      push();
+      translate(cos(ang) * sz * 0.55, sin(ang) * sz * 0.55);
+      rotate(ang + HALF_PI); // leaf tip points outward
+
+      const leafL = sz * 1.5;
+      const leafW = sz * 0.52;
+      const gr    = 30 + lval * 80;
+      const gg    = 145 + lval * 75;
+      const gb    = 40 + lval * 15;
+
+      // Leaf shape via bezier curves
+      noStroke();
+      fill(gr, gg, gb, alpha);
+      beginShape();
+      vertex(0, 0);
+      bezierVertex(-leafW, leafL * 0.28, -leafW * 0.55, leafL * 0.72, 0, leafL);
+      bezierVertex( leafW * 0.55, leafL * 0.72,  leafW, leafL * 0.28, 0, 0);
+      endShape(CLOSE);
+
+      // Midrib vein
+      stroke(gr * 0.6, gg + 20, gb * 0.7, alpha * 0.7);
+      strokeWeight(0.7);
+      line(0, sz * 0.1, 0, leafL * 0.88);
+
+      // Side veins (2 pairs)
+      for (let v = 1; v <= 2; v++) {
+        const vy = leafL * (v * 0.28);
+        const vx = leafW * (0.55 - v * 0.08);
+        line(0, vy, -vx, vy - leafL * 0.09);
+        line(0, vy,  vx, vy - leafL * 0.09);
+      }
+      noStroke();
+      pop();
     }
-    // Centre nucleus
-    fill(80, 200, 80, alpha * 0.8);
-    ellipse(this.posX, this.posY, pulse * 0.9, pulse * 0.9);
+
+    // Centre node / stem base
+    fill(40 + lval * 50, 160 + lval * 50, 45, alpha * 0.7);
+    ellipse(0, 0, sz * 0.55, sz * 0.55);
+
+    pop();
   }
 }
 
@@ -409,14 +442,58 @@ class CellDecomposer extends BaseCell {
 
   draw() {
     const alpha = map(this.energy, 0, 110, 60, 210);
+    const sz    = this.cellSize;
+    const ang   = atan2(this.velY, this.velX); // orient body along movement
+
+    push();
+    translate(this.posX, this.posY);
+    rotate(ang + HALF_PI + this.age * 0.018); // slow tumble
+
+    const bodyL = sz * 1.55;
+    const bodyW = sz * 0.80;
+
+    // Body — noise-warped elongated oval (paramecium-like)
     noStroke();
-    // Blobby with 3 overlapping circles
-    fill(145, 100, 200, alpha);
-    for (let i = 0; i < 3; i++) {
-      const ox = sin(this.age * 0.04 + i * TWO_PI / 3) * (this.cellSize * 0.45);
-      const oy = cos(this.age * 0.04 + i * TWO_PI / 3) * (this.cellSize * 0.45);
-      ellipse(this.posX + ox, this.posY + oy, this.cellSize * 1.5, this.cellSize * 1.5);
+    fill(110, 65, 175, alpha);
+    beginShape();
+    for (let a = 0; a < TWO_PI; a += 0.25) {
+      const nv = noise(this.noiseOff + cos(a) * 0.45, this.noiseOff + sin(a) * 0.45, this.age * 0.003);
+      vertex(cos(a) * bodyW * (0.82 + nv * 0.28),
+             sin(a) * bodyL * (0.82 + nv * 0.22));
     }
+    endShape(CLOSE);
+
+    // Large kidney-shaped nucleus
+    fill(75, 40, 125, alpha * 0.85);
+    push();
+    translate(0, sz * 0.15);
+    rotate(0.4);
+    ellipse(0, 0, sz * 0.52, sz * 0.72);
+    pop();
+
+    // Food vacuoles — small bright orbiting circles
+    for (let i = 0; i < 4; i++) {
+      const va = this.age * 0.04 + i * HALF_PI;
+      fill(175, 120, 235, alpha * 0.55);
+      ellipse(sin(va) * sz * 0.38, cos(va) * sz * 0.48, sz * 0.25, sz * 0.25);
+    }
+
+    // Cilia — short bristles around the perimeter
+    stroke(160, 110, 215, alpha * 0.45);
+    strokeWeight(0.65);
+    const ciliaCount = 18;
+    for (let i = 0; i < ciliaCount; i++) {
+      const ca      = (i / ciliaCount) * TWO_PI;
+      const ciliaWobble = sin(this.age * 0.12 + i * 0.7) * 0.18;
+      const cx1 = cos(ca) * bodyW * 0.88;
+      const cy1 = sin(ca) * bodyL * 0.88;
+      const cx2 = cos(ca + ciliaWobble) * (bodyW + sz * 0.42);
+      const cy2 = sin(ca + ciliaWobble) * (bodyL + sz * 0.42);
+      line(cx1, cy1, cx2, cy2);
+    }
+    noStroke();
+
+    pop();
   }
 }
 
