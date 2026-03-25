@@ -7,8 +7,8 @@
       "floor": 1,
       "sensors": {
         "temperature": 21.1,
-        "humidity": 287,
-        "light": 287,
+        "humidity": 289,
+        "light": 289,
         "motion": false,
         "co2": 600
       }
@@ -20,7 +20,7 @@
       "sensors": {
         "temperature": 21.1,
         "humidity": 50,
-        "light": 287,
+        "light": 289,
         "motion": false,
         "co2": 600
       }
@@ -32,7 +32,7 @@
       "sensors": {
         "temperature": 21.1,
         "humidity": 50,
-        "light": 287,
+        "light": 289,
         "motion": false,
         "co2": 600
       }
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T15:21:21Z"
+  "lastUpdated": "2026-03-25T15:22:22Z"
 }
