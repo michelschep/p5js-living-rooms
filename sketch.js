@@ -807,11 +807,12 @@ function drawRoomBackground(rc) {
   const tL  = rc.normLight();
   const tH  = rc.normHumidity();
 
-  // Aggressive formula — rooms must look clearly different
-  // Light = dominant brightness, Temp = warm(R)/cold(B) tint, Humidity = green-blue damp
-  const rCh = constrain(tL * 180 + tT * 60 - tH * 30, 0, 255);
-  const gCh = constrain(tL * 120 + tH * 40 - (1 - tT) * 20, 0, 255);
-  const bCh = constrain(tL * 60  + (1 - tT) * 100 + tH * 60, 0, 255);
+  // Temperature and humidity drive color even when lux is the same across floors.
+  // Warm=red/orange, cold=blue, humid=green-blue, bright=adds overall lightness.
+  const brightness = 20 + tL * 80;  // light adds brightness but isn't the only factor
+  const rCh = constrain(brightness + tT * 120 + (1 - tH) * 40, 0, 255);
+  const gCh = constrain(brightness + tH * 80  - tT * 30, 0, 255);
+  const bCh = constrain(brightness + (1 - tT) * 130 + tH * 60, 0, 255);
 
   fill(rCh, gCh, bCh);
   noStroke();
@@ -833,10 +834,11 @@ function drawFloorDividers() {
       const tT  = rcLow.normTemp()     + (rcHigh.normTemp()     - rcLow.normTemp())     * t;
       const tL  = rcLow.normLight()    + (rcHigh.normLight()    - rcLow.normLight())    * t;
       const tH  = rcLow.normHumidity() + (rcHigh.normHumidity() - rcLow.normHumidity()) * t;
+      const brightness = 20 + tL * 80;
       fill(
-        constrain(tL * 180 + tT * 60 - tH * 30, 0, 255),
-        constrain(tL * 120 + tH * 40 - (1 - tT) * 20, 0, 255),
-        constrain(tL * 60  + (1 - tT) * 100 + tH * 60, 0, 255)
+        constrain(brightness + tT * 120 + (1 - tH) * 40, 0, 255),
+        constrain(brightness + tH * 80  - tT * 30, 0, 255),
+        constrain(brightness + (1 - tT) * 130 + tH * 60, 0, 255)
       );
       noStroke();
       rect(0, corrY + (i / steps) * CORRIDOR_H, canvasW, CORRIDOR_H / steps + 1);
