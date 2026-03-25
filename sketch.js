@@ -581,7 +581,10 @@ function seedPopulation() {
 // Load / refresh data from rooms.json
 // ---------------------------------------------------------------------------
 function loadRoomsData() {
-  fetch('rooms.json?' + Date.now())
+  // Fetch from GitHub raw so the ha-rooms-updater service can push live sensor data.
+  // Cache-busting timestamp forces the browser to bypass cached responses.
+  const rawUrl = 'https://raw.githubusercontent.com/michelschep/p5js-living-rooms/main/rooms.json';
+  fetch(rawUrl + '?t=' + Date.now())
     .then(resp => resp.json())
     .then(data => {
       appConfig = data;
