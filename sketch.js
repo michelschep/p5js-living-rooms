@@ -1,142 +1,142 @@
 // =============================================================================
-// Living Rooms — Cellular Life Simulation
+// Living Rooms — Cellular Life Simulation  v2
 // Environmental data from Home Assistant drives cellular behaviour.
 //
-// ⚠ Variable naming rule: Never use p5.js reserved names (width, height, color,
-//   fill, stroke, random, noise, map, text, key, image, frameCount, mouseX,
-//   mouseY, etc.) as variable names. Use prefixed alternatives instead.
+// ⚠ Variable naming rule: NEVER use p5.js reserved names as variables.
+//   Forbidden: width, height, color, fill, stroke, random, noise, map,
+//   text, key, image, frameCount, mouseX, mouseY, dist, constrain, etc.
+//   Use prefixes: canvasW, canvasH, cellColor, rndFloat(), ...
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// Canvas & layout constants  (avoid using p5 reserved 'width'/'height')
+// Layout — computed responsively in setup() / windowResized()
 // ---------------------------------------------------------------------------
-const CANVAS_W = 900;
-const CANVAS_H = 730;
-const FLOOR_H  = 210;   // height of each room area in pixels
-const BORDER_H = 25;    // gap between floors (where doors sit)
-const HUD_MARGIN = 8;
-const DOOR_WIDTH = 44;  // width of doorway opening
+let canvasW  = 900;
+let floorH   = 210;
+let canvasH  = 680;
+
+const BORDER_H  = 22;   // gap between floors (door zone)
+const DOOR_W    = 50;   // door opening width
+const MIN_FLOOR_H = 140;
+
+function recomputeLayout() {
+  canvasW = Math.min(windowWidth - 16, 900);
+  floorH  = canvasW < 560 ? MIN_FLOOR_H : 210;
+  canvasH = 3 * floorH + 2 * BORDER_H;
+}
 
 // ---------------------------------------------------------------------------
 // Cell constants
 // ---------------------------------------------------------------------------
-const CELL_RADIUS     = 5;
-const MAX_CELLS_ROOM  = 120;
-const INITIAL_CELLS   = 18;  // per cell type per room
-const DEAD_DECAY_LIFE = 200; // frames a dead cell persists
+const BASE_RADIUS    = 7;    // base cell radius (cells also grow)
+const MAX_CELLS_ROOM = 100;  // cap per room
+const INITIAL_CELLS  = 12;   // per type per room
+const DEAD_DECAY     = 280;  // frames a dead cell lingers
+const DAMPING        = 0.96; // velocity damping each frame — keeps movement calm
 
 // ---------------------------------------------------------------------------
-// App state  (never named 'config' alone — use 'appConfig' / 'roomDataList')
+// App state
 // ---------------------------------------------------------------------------
-let appConfig         = null;   // parsed rooms.json
-let roomDataList      = [];     // RoomConfig objects
-let allCells          = [];     // flat list of all living cells
-let deadCells         = [];     // recently dead cells (food for decomposers)
-let lastRefreshTime   = 0;
-let nextRefreshSecs   = 0;
-let dataLoaded        = false;
+let appConfig      = null;
+let roomDataList   = [];
+let allCells       = [];
+let deadCells      = [];
+let lastRefreshMs  = 0;
+let refreshSecs    = 180;
+let dataLoaded     = false;
+let domUpdateTimer = 0;
 
 // ---------------------------------------------------------------------------
-// Floor layout helpers — called after appConfig is loaded
+// Floor layout helpers
 // ---------------------------------------------------------------------------
-
-// Returns the y-coordinate (top of room drawing area) for a given floor number
-// Floor 3 is at top, Floor 1 at bottom.
 function floorTopY(floorNum) {
-  // floors: 3 → row 0, 2 → row 1, 1 → row 2
-  const rowIndex = 3 - floorNum;
-  return rowIndex * (FLOOR_H + BORDER_H);
+  // Floor 3 → top (row 0), Floor 1 → bottom (row 2)
+  return (3 - floorNum) * (floorH + BORDER_H);
 }
 
 function floorBounds(floorNum) {
-  const topY = floorTopY(floorNum);
-  return { x: 0, y: topY, w: CANVAS_W, h: FLOOR_H };
+  return { x: 0, y: floorTopY(floorNum), w: canvasW, h: floorH };
 }
 
-// Doorway centre-x and y-position between two adjacent floors
-function doorInfo(fromFloor, toFloor, positionFraction) {
-  const lowerFloor = Math.min(fromFloor, toFloor);
-  const topOfLower = floorTopY(lowerFloor);
-  const doorY      = topOfLower - BORDER_H; // top of the gap (gap sits between upperFloor bottom and lowerFloor top)
-  const doorCentreX = CANVAS_W * positionFraction;
+function doorInfo(fromFloor, toFloor, posFraction) {
+  const lo     = Math.min(fromFloor, toFloor);
+  const gapY   = floorTopY(lo) - BORDER_H;           // top of gap
+  const centreX = canvasW * posFraction;
   return {
-    x: doorCentreX - DOOR_WIDTH / 2,
-    y: doorY,
-    w: DOOR_WIDTH,
-    h: BORDER_H,
-    centreX: doorCentreX,
-    centreY: doorY + BORDER_H / 2,
-    lowerFloor,
-    upperFloor: lowerFloor + 1
+    x: centreX - DOOR_W / 2, y: gapY,
+    w: DOOR_W, h: BORDER_H,
+    centreX, centreY: gapY + BORDER_H / 2,
+    lowerFloor: lo, upperFloor: lo + 1
   };
 }
 
 // ---------------------------------------------------------------------------
-// RoomConfig — wraps one room's definition and sensor values
+// RoomConfig
 // ---------------------------------------------------------------------------
 class RoomConfig {
   constructor(data) {
-    this.id    = data.id;
-    this.roomName  = data.name; // renamed: avoid 'name' shadowing issues
+    this.id        = data.id;
+    this.roomName  = data.name;
     this.floorNum  = data.floor;
     this.sensors   = { ...data.sensors };
-    this.bounds    = floorBounds(data.floor);
   }
+  get bounds() { return floorBounds(this.floorNum); }
 
-  // Normalised 0–1 sensor helpers
-  normTemp()     { return constrain((this.sensors.temperature - 10) / 25, 0, 1); }  // 10–35°C
+  normTemp()     { return constrain((this.sensors.temperature - 10) / 25, 0, 1); }
   normHumidity() { return constrain(this.sensors.humidity / 100, 0, 1); }
-  normLight()    { return constrain(this.sensors.light / 600, 0, 1); }              // 0–600 lux
-  normCo2()      { return constrain((this.sensors.co2 - 400) / 800, 0, 1); }       // 400–1200 ppm
+  normLight()    { return constrain(this.sensors.light / 600, 0, 1); }
+  normCo2()      { return constrain((this.sensors.co2 - 400) / 800, 0, 1); }
   hasMotion()    { return this.sensors.motion === true; }
 
-  update(newSensors) {
-    this.sensors = { ...newSensors };
-  }
+  update(s) { this.sensors = { ...s }; }
 }
 
 // ---------------------------------------------------------------------------
-// Base Cell class
+// BaseCell
 // ---------------------------------------------------------------------------
 class BaseCell {
   constructor(roomCfg) {
-    const b = roomCfg.bounds;
+    const b        = roomCfg.bounds;
     this.roomId    = roomCfg.id;
     this.floorNum  = roomCfg.floorNum;
-    this.posX      = b.x + random(CELL_RADIUS + 4, b.w - CELL_RADIUS - 4);
-    this.posY      = b.y + random(CELL_RADIUS + 4, b.h - CELL_RADIUS - 4);
-    this.velX      = random(-0.8, 0.8);
-    this.velY      = random(-0.8, 0.8);
-    this.energy    = random(60, 100);
-    this.lifespan  = random(400, 800);
+    this.posX      = b.x + random(BASE_RADIUS + 6, b.w - BASE_RADIUS - 6);
+    this.posY      = b.y + random(BASE_RADIUS + 6, b.h - BASE_RADIUS - 6);
+    this.velX      = random(-0.3, 0.3);
+    this.velY      = random(-0.3, 0.3);
+    this.energy    = random(50, 90);
+    this.lifespan  = random(600, 1200);
     this.age       = 0;
-    this.cellSize  = CELL_RADIUS;
+    this.cellSize  = BASE_RADIUS * random(0.7, 1.0);  // start small, grows
+    this.maxSize   = BASE_RADIUS * random(1.0, 1.6);
     this.isDead    = false;
     this.cellType  = 'base';
+    this.noiseOff  = random(1000); // unique noise offset for organic shape
   }
 
-  getRoomConfig() {
-    return roomDataList.find(r => r.id === this.roomId);
-  }
+  getRoomConfig() { return roomDataList.find(r => r.id === this.roomId); }
 
-  // Apply environmental modifiers each frame
-  applyEnvironment() {
-    const roomCfg = this.getRoomConfig();
-    if (!roomCfg) return;
-
-    const speedFactor = 0.5 + roomCfg.normTemp() * 1.5;  // hotter → faster
-    this.velX *= speedFactor;
-    this.velY *= speedFactor;
-
-    // Motion detected → scatter burst
-    if (roomCfg.hasMotion() && random() < 0.04) {
-      this.velX += random(-3, 3);
-      this.velY += random(-3, 3);
+  grow() {
+    // Gradually grow toward maxSize when energy is good
+    if (this.energy > 40 && this.cellSize < this.maxSize) {
+      this.cellSize += 0.015;
     }
   }
 
-  // Clamp velocity
-  limitSpeed(maxSpd) {
+  applyEnvironment() {
+    const rc = this.getRoomConfig();
+    if (!rc) return;
+    // Temperature drives metabolic speed (keep it subtle — 0.7–1.3×)
+    const speedMod = 0.7 + rc.normTemp() * 0.6;
+    this.velX *= speedMod;
+    this.velY *= speedMod;
+    // Motion detected → mild scatter
+    if (rc.hasMotion() && random() < 0.03) {
+      this.velX += random(-1.0, 1.0);
+      this.velY += random(-1.0, 1.0);
+    }
+  }
+
+  limitVel(maxSpd) {
     const spd = sqrt(this.velX * this.velX + this.velY * this.velY);
     if (spd > maxSpd) {
       this.velX = (this.velX / spd) * maxSpd;
@@ -144,489 +144,509 @@ class BaseCell {
     }
   }
 
-  // Keep cell within its room bounds; bounce off walls.
-  // Door zones in top/bottom edges allow cells to pass through instead of bouncing.
+  // Bounce off room walls, but let cells through door zones
   bounceInRoom() {
-    const roomCfg = this.getRoomConfig();
-    if (!roomCfg) return;
-    const b      = roomCfg.bounds;
-    const margin = this.cellSize;
+    const rc = this.getRoomConfig();
+    if (!rc) return;
+    const b  = rc.bounds;
+    const mg = this.cellSize;
 
-    // Left / right walls always bounce
-    if (this.posX < b.x + margin)       { this.posX = b.x + margin;       this.velX *= -1; }
-    if (this.posX > b.x + b.w - margin) { this.posX = b.x + b.w - margin; this.velX *= -1; }
+    if (this.posX < b.x + mg)       { this.posX = b.x + mg;       this.velX *= -1; }
+    if (this.posX > b.x + b.w - mg) { this.posX = b.x + b.w - mg; this.velX *= -1; }
 
-    // Top edge — bounce unless cell is inside a door X-zone
-    if (this.posY < b.y + margin) {
-      if (!this.isInDoorXZone('top')) {
-        this.posY = b.y + margin;
-        this.velY *= -1;
-      }
-    }
-
-    // Bottom edge — bounce unless cell is inside a door X-zone
-    if (this.posY > b.y + b.h - margin) {
-      if (!this.isInDoorXZone('bottom')) {
-        this.posY = b.y + b.h - margin;
-        this.velY *= -1;
-      }
-    }
+    if (this.posY < b.y + mg && !this.isInDoorZone('top'))    { this.posY = b.y + mg;       this.velY *= -1; }
+    if (this.posY > b.y + b.h - mg && !this.isInDoorZone('bottom')) { this.posY = b.y + b.h - mg; this.velY *= -1; }
   }
 
-  // Returns true when this cell is horizontally inside a doorway opening at the
-  // given vertical edge ('top' or 'bottom') of its current floor.
-  isInDoorXZone(edge) {
-    if (!appConfig || !appConfig.doors) return false;
-    for (const door of appConfig.doors) {
-      const di = doorInfo(door.fromFloor, door.toFloor, door.positionFraction);
-      // lowerFloor (lower floor number) connects at its TOP edge
-      // upperFloor (higher floor number) connects at its BOTTOM edge
-      const edgeMatches =
-        (edge === 'top'    && this.floorNum === di.lowerFloor) ||
-        (edge === 'bottom' && this.floorNum === di.upperFloor);
-      if (edgeMatches && this.posX >= di.x && this.posX <= di.x + di.w) return true;
+  isInDoorZone(edge) {
+    if (!appConfig?.doors) return false;
+    for (const d of appConfig.doors) {
+      const di = doorInfo(d.fromFloor, d.toFloor, d.positionFraction);
+      const edgeOk = (edge === 'top' && this.floorNum === di.lowerFloor) ||
+                     (edge === 'bottom' && this.floorNum === di.upperFloor);
+      if (edgeOk && this.posX >= di.x && this.posX <= di.x + di.w) return true;
     }
     return false;
   }
 
-  // Teleport cell to adjacent floor when it has drifted into the gap zone.
-  // This runs AFTER bounceInRoom so only cells that passed the door edge reach here.
   checkDoorMigration() {
-    if (!appConfig || !appConfig.doors) return;
-
-    for (const door of appConfig.doors) {
-      const di       = doorInfo(door.fromFloor, door.toFloor, door.positionFraction);
-      const gapTop   = di.y;              // top of gap    = bottom of upperFloor room
-      const gapBot   = di.y + BORDER_H;  // bottom of gap = top of lowerFloor room
-
-      // Cell must be horizontally inside the doorway
+    if (!appConfig?.doors) return;
+    for (const d of appConfig.doors) {
+      const di = doorInfo(d.fromFloor, d.toFloor, d.positionFraction);
       if (this.posX < di.x || this.posX > di.x + di.w) continue;
+      const inGap = this.posY >= di.y && this.posY <= di.y + di.h;
+      if (!inGap) continue;
 
-      // Cell must have entered the gap zone between the two floors
-      if (this.posY < gapTop || this.posY > gapBot) continue;
-
-      // Determine target floor from direction of travel
       let targetFloor;
-      if (this.floorNum === di.lowerFloor) {
-        targetFloor = di.upperFloor;   // moving up (toward lower Y)
-      } else if (this.floorNum === di.upperFloor) {
-        targetFloor = di.lowerFloor;   // moving down (toward higher Y)
-      } else {
-        continue; // cell somehow from a different floor — skip
-      }
+      if (this.floorNum === di.lowerFloor)      targetFloor = di.upperFloor;
+      else if (this.floorNum === di.upperFloor) targetFloor = di.lowerFloor;
+      else continue;
 
-      const originalFloor = this.floorNum;
-      const targetRoom    = roomDataList.find(r => r.floorNum === targetFloor);
+      const origFloor  = this.floorNum;
+      const targetRoom = roomDataList.find(r => r.floorNum === targetFloor);
       if (!targetRoom) continue;
 
       this.roomId   = targetRoom.id;
       this.floorNum = targetRoom.floorNum;
       const tb      = targetRoom.bounds;
       this.posX     = constrain(this.posX, tb.x + this.cellSize + 2, tb.x + tb.w - this.cellSize - 2);
-      // Place cell just inside the target room, adjacent to the door gap
-      this.posY = (targetFloor > originalFloor)
-        ? tb.y + tb.h - this.cellSize - 3   // going up   → appear at bottom of upper room
-        : tb.y + this.cellSize + 3;          // going down → appear at top of lower room
+      this.posY     = (targetFloor > origFloor)
+        ? tb.y + tb.h - this.cellSize - 3
+        : tb.y + this.cellSize + 3;
       break;
     }
   }
 
-  baseUpdate() {
+  baseUpdate(maxSpd, driftAmt) {
     this.age++;
-    this.energy -= 0.12;
+    this.energy -= 0.10;
+    this.grow();
     this.applyEnvironment();
-    this.velX += random(-0.15, 0.15);
-    this.velY += random(-0.15, 0.15);
-    this.limitSpeed(2.5);
+    this.velX += random(-driftAmt, driftAmt);
+    this.velY += random(-driftAmt, driftAmt);
+    this.velX *= DAMPING;
+    this.velY *= DAMPING;
+    this.limitVel(maxSpd);
     this.posX += this.velX;
     this.posY += this.velY;
     this.bounceInRoom();
     this.checkDoorMigration();
-
-    if (this.energy <= 0 || this.age >= this.lifespan) {
-      this.isDead = true;
-    }
+    if (this.energy <= 0 || this.age >= this.lifespan) this.isDead = true;
   }
 }
 
 // ---------------------------------------------------------------------------
-// CellProducer — photosynthetic, needs light, hurt by high CO2
+// CellPlant — photosynthetic, nearly stationary, grows in clumps
 // ---------------------------------------------------------------------------
-class CellProducer extends BaseCell {
+class CellPlant extends BaseCell {
   constructor(roomCfg) {
     super(roomCfg);
-    this.cellType = 'producer';
-    this.cellSize = CELL_RADIUS - 1;
+    this.cellType = 'plant';
+    this.lobes    = floor(random(3, 7));  // number of organic lobes
+    this.maxSize  = BASE_RADIUS * random(1.4, 2.2);
   }
 
   update() {
-    this.baseUpdate();
+    this.baseUpdate(0.25, 0.015); // very slow
     if (this.isDead) return;
+    const rc = this.getRoomConfig();
+    if (!rc) return;
 
-    const roomCfg = this.getRoomConfig();
-    if (!roomCfg) return;
+    this.energy += rc.normLight() * 0.55;         // photosynthesis
+    this.energy -= rc.normCo2() * 0.18;           // CO2 stress
+    this.energy += rc.normHumidity() * 0.07;
+    this.energy  = constrain(this.energy, 0, 130);
 
-    // Photosynthesis: gain energy from light
-    this.energy += roomCfg.normLight() * 0.6;
-
-    // CO2 stress
-    this.energy -= roomCfg.normCo2() * 0.25;
-
-    // Humidity boost
-    this.energy += roomCfg.normHumidity() * 0.08;
-
-    // Clamp energy
-    this.energy = constrain(this.energy, 0, 120);
-
-    // Replicate when well-fed and light is good
-    if (this.energy > 90 && roomCfg.normLight() > 0.3 && random() < 0.004) {
-      trySpawnCell('producer', roomCfg);
-      this.energy -= 30;
+    // Split when big and well-lit
+    if (this.energy > 110 && this.cellSize > this.maxSize * 0.85 && rc.normLight() > 0.25 && random() < 0.003) {
+      spawnCell('plant', rc);
+      this.energy   -= 40;
+      this.cellSize *= 0.75; // shrink after split
     }
   }
 
   draw() {
-    const alpha = map(this.energy, 0, 120, 80, 255);
-    fill(94, 207, 122, alpha);
+    const rc    = this.getRoomConfig();
+    const lval  = rc ? rc.normLight() : 0.5;
+    const alpha = map(this.energy, 0, 130, 60, 230);
+    const pulse = this.cellSize + sin(this.age * 0.04) * 0.6;
     noStroke();
-    const pulse = this.cellSize + sin(this.age * 0.08) * 0.8;
-    ellipse(this.posX, this.posY, pulse * 2, pulse * 2);
+
+    // Draw lobed plant shape
+    const lobeR = pulse * 0.65;
+    for (let i = 0; i < this.lobes; i++) {
+      const ang = (i / this.lobes) * TWO_PI + this.age * 0.005;
+      const lx  = this.posX + cos(ang) * (pulse * 0.5);
+      const ly  = this.posY + sin(ang) * (pulse * 0.5);
+      fill(40 + lval * 60, 160 + lval * 50, 55, alpha);
+      ellipse(lx, ly, lobeR * 2, lobeR * 1.6);
+    }
+    // Centre nucleus
+    fill(80, 200, 80, alpha * 0.8);
+    ellipse(this.posX, this.posY, pulse * 0.9, pulse * 0.9);
   }
 }
 
 // ---------------------------------------------------------------------------
-// CellHerbivore — eats producers, temp-driven, flees predators
+// CellHerbivore — eats plants, moderate speed
 // ---------------------------------------------------------------------------
 class CellHerbivore extends BaseCell {
   constructor(roomCfg) {
     super(roomCfg);
     this.cellType = 'herbivore';
-    this.cellSize = CELL_RADIUS;
+    this.maxSize  = BASE_RADIUS * random(0.9, 1.4);
   }
 
   update() {
-    this.baseUpdate();
+    this.baseUpdate(0.65, 0.04);
     if (this.isDead) return;
+    const rc = this.getRoomConfig();
+    if (!rc) return;
 
-    const roomCfg = this.getRoomConfig();
-    if (!roomCfg) return;
-
-    // Find nearest producer to eat
-    let nearestProducer = null;
-    let nearestDist     = 80;
+    // Seek nearest plant
+    let prey = null, preyDist = 90;
     for (const c of allCells) {
-      if (c.cellType === 'producer' && c.roomId === this.roomId && !c.isDead) {
-        const d = dist(this.posX, this.posY, c.posX, c.posY);
-        if (d < nearestDist) {
-          nearestDist    = d;
-          nearestProducer = c;
-        }
-      }
+      if (c.cellType !== 'plant' || c.roomId !== this.roomId || c.isDead) continue;
+      const d = dist(this.posX, this.posY, c.posX, c.posY);
+      if (d < preyDist) { preyDist = d; prey = c; }
     }
-
-    if (nearestProducer) {
-      // Move toward it
-      const dx = nearestProducer.posX - this.posX;
-      const dy = nearestProducer.posY - this.posY;
-      const mag = sqrt(dx * dx + dy * dy) || 1;
-      this.velX += (dx / mag) * 0.4;
-      this.velY += (dy / mag) * 0.4;
-
-      if (nearestDist < this.cellSize + nearestProducer.cellSize + 2) {
-        nearestProducer.isDead = true;
-        this.energy += 35;
+    if (prey) {
+      const dx = prey.posX - this.posX, dy = prey.posY - this.posY;
+      const mg = sqrt(dx * dx + dy * dy) || 1;
+      this.velX += (dx / mg) * 0.25;
+      this.velY += (dy / mg) * 0.25;
+      if (preyDist < this.cellSize + prey.cellSize + 1) {
+        prey.isDead  = true;
+        this.energy += 40;
       }
     }
 
     // Flee predators
     for (const c of allCells) {
-      if (c.cellType === 'predator' && c.roomId === this.roomId && !c.isDead) {
-        const d = dist(this.posX, this.posY, c.posX, c.posY);
-        if (d < 70) {
-          this.velX -= (c.posX - this.posX) * 0.06;
-          this.velY -= (c.posY - this.posY) * 0.06;
-        }
+      if (c.cellType !== 'predator' || c.roomId !== this.roomId || c.isDead) continue;
+      const d = dist(this.posX, this.posY, c.posX, c.posY);
+      if (d < 80) {
+        this.velX -= (c.posX - this.posX) * 0.04;
+        this.velY -= (c.posY - this.posY) * 0.04;
       }
     }
 
-    this.energy -= 0.05;
-    this.energy = constrain(this.energy, 0, 120);
-
-    // Replicate when fed
-    if (this.energy > 95 && random() < 0.003) {
-      trySpawnCell('herbivore', roomCfg);
-      this.energy -= 35;
-    }
+    this.energy = constrain(this.energy - 0.06, 0, 120);
+    if (this.energy > 100 && random() < 0.003) { spawnCell('herbivore', rc); this.energy -= 40; }
   }
 
   draw() {
-    const alpha = map(this.energy, 0, 120, 80, 255);
-    fill(90, 180, 212, alpha);
+    const alpha = map(this.energy, 0, 120, 60, 220);
+    const sz    = this.cellSize;
     noStroke();
-    ellipse(this.posX, this.posY, this.cellSize * 2, this.cellSize * 2);
-    // Small flagellum hint
-    stroke(90, 180, 212, alpha * 0.5);
-    strokeWeight(1);
-    const angle = atan2(this.velY, this.velX) + PI;
-    line(
-      this.posX, this.posY,
-      this.posX + cos(angle) * 6,
-      this.posY + sin(angle) * 6
-    );
-    noStroke();
+    // Amoeba-like shape using noise
+    fill(70, 170, 210, alpha);
+    beginShape();
+    for (let a = 0; a < TWO_PI; a += 0.35) {
+      const nv = noise(this.noiseOff + cos(a) * 0.5, this.noiseOff + sin(a) * 0.5, this.age * 0.008);
+      const r  = sz * (0.75 + nv * 0.5);
+      vertex(this.posX + cos(a) * r, this.posY + sin(a) * r);
+    }
+    endShape(CLOSE);
+    // Nucleus
+    fill(120, 200, 240, alpha * 0.6);
+    ellipse(this.posX, this.posY, sz * 0.55, sz * 0.55);
   }
 }
 
 // ---------------------------------------------------------------------------
-// CellPredator — hunts herbivores, thrives in warm rooms
+// CellPredator — hunts herbivores, thrives warm
 // ---------------------------------------------------------------------------
 class CellPredator extends BaseCell {
   constructor(roomCfg) {
     super(roomCfg);
     this.cellType = 'predator';
-    this.cellSize = CELL_RADIUS + 1;
-    this.lifespan = random(600, 1000);
+    this.maxSize  = BASE_RADIUS * random(1.1, 1.7);
+    this.lifespan = random(800, 1400);
   }
 
   update() {
-    this.baseUpdate();
+    this.baseUpdate(0.9, 0.03);
     if (this.isDead) return;
+    const rc = this.getRoomConfig();
+    if (!rc) return;
 
-    const roomCfg = this.getRoomConfig();
-    if (!roomCfg) return;
+    this.energy += rc.normTemp() * 0.12 - (1 - rc.normTemp()) * 0.10 - 0.15;
+    this.energy  = constrain(this.energy, 0, 140);
 
-    // Warm rooms help predators
-    this.energy += roomCfg.normTemp() * 0.15;
-    // Cold stresses them
-    this.energy -= (1 - roomCfg.normTemp()) * 0.1;
-    this.energy -= 0.18; // higher baseline cost
-    this.energy = constrain(this.energy, 0, 130);
-
-    // Hunt nearest herbivore
-    let prey = null;
-    let preyDist = 100;
+    let prey = null, preyDist = 110;
     for (const c of allCells) {
-      if (c.cellType === 'herbivore' && c.roomId === this.roomId && !c.isDead) {
-        const d = dist(this.posX, this.posY, c.posX, c.posY);
-        if (d < preyDist) {
-          preyDist = d;
-          prey = c;
-        }
-      }
+      if (c.cellType !== 'herbivore' || c.roomId !== this.roomId || c.isDead) continue;
+      const d = dist(this.posX, this.posY, c.posX, c.posY);
+      if (d < preyDist) { preyDist = d; prey = c; }
     }
-
     if (prey) {
-      const dx = prey.posX - this.posX;
-      const dy = prey.posY - this.posY;
-      const mag = sqrt(dx * dx + dy * dy) || 1;
-      this.velX += (dx / mag) * 0.5;
-      this.velY += (dy / mag) * 0.5;
-
-      if (preyDist < this.cellSize + prey.cellSize + 2) {
-        prey.isDead = true;
-        this.energy += 50;
+      const dx = prey.posX - this.posX, dy = prey.posY - this.posY;
+      const mg = sqrt(dx * dx + dy * dy) || 1;
+      this.velX += (dx / mg) * 0.35;
+      this.velY += (dy / mg) * 0.35;
+      if (preyDist < this.cellSize + prey.cellSize + 1) {
+        prey.isDead  = true;
+        this.energy += 55;
       }
     }
-
-    // Replicate when very well-fed
-    if (this.energy > 110 && random() < 0.002) {
-      trySpawnCell('predator', roomCfg);
-      this.energy -= 50;
-    }
+    if (this.energy > 120 && random() < 0.002) { spawnCell('predator', rc); this.energy -= 55; }
   }
 
   draw() {
-    const alpha = map(this.energy, 0, 130, 80, 255);
-    fill(224, 92, 92, alpha);
+    const alpha = map(this.energy, 0, 140, 60, 220);
+    const sz    = this.cellSize;
+    const ang   = atan2(this.velY, this.velX);
     noStroke();
-    // Triangle shape for predators
-    const sz = this.cellSize * 2;
-    const angle = atan2(this.velY, this.velX);
-    push();
-    translate(this.posX, this.posY);
-    rotate(angle);
-    triangle(sz, 0, -sz * 0.6, -sz * 0.5, -sz * 0.6, sz * 0.5);
-    pop();
+    // Spiky predator shape
+    fill(200, 70, 70, alpha);
+    beginShape();
+    const spikes = 6;
+    for (let i = 0; i < spikes * 2; i++) {
+      const a = ang + (i / (spikes * 2)) * TWO_PI;
+      const r = (i % 2 === 0) ? sz * 1.2 : sz * 0.55;
+      vertex(this.posX + cos(a) * r, this.posY + sin(a) * r);
+    }
+    endShape(CLOSE);
+    fill(240, 120, 120, alpha * 0.5);
+    ellipse(this.posX, this.posY, sz * 0.5, sz * 0.5);
   }
 }
 
 // ---------------------------------------------------------------------------
-// CellDecomposer — eats dead cells, needs humidity + CO2
+// CellDecomposer — eats dead cells, loves humidity + CO2
 // ---------------------------------------------------------------------------
 class CellDecomposer extends BaseCell {
   constructor(roomCfg) {
     super(roomCfg);
     this.cellType = 'decomposer';
-    this.cellSize = CELL_RADIUS - 1;
-    this.lifespan = random(500, 900);
+    this.maxSize  = BASE_RADIUS * random(0.9, 1.3);
   }
 
   update() {
-    this.baseUpdate();
+    this.baseUpdate(0.35, 0.02);
     if (this.isDead) return;
+    const rc = this.getRoomConfig();
+    if (!rc) return;
 
-    const roomCfg = this.getRoomConfig();
-    if (!roomCfg) return;
+    this.energy += rc.normHumidity() * 0.18 + rc.normCo2() * 0.18 - 0.12;
+    this.energy  = constrain(this.energy, 0, 110);
 
-    // Thrive with humidity + CO2
-    this.energy += roomCfg.normHumidity() * 0.2;
-    this.energy += roomCfg.normCo2() * 0.2;
-    this.energy -= 0.14;
-    this.energy = constrain(this.energy, 0, 100);
-
-    // Eat nearest dead cell
-    let nearDead = null;
-    let nearDeadDist = 60;
+    let target = null, targetDist = 70;
     for (const dc of deadCells) {
-      if (dc.roomId === this.roomId) {
-        const d = dist(this.posX, this.posY, dc.posX, dc.posY);
-        if (d < nearDeadDist) {
-          nearDeadDist = d;
-          nearDead = dc;
-        }
-      }
+      if (dc.roomId !== this.roomId) continue;
+      const d = dist(this.posX, this.posY, dc.posX, dc.posY);
+      if (d < targetDist) { targetDist = d; target = dc; }
+    }
+    if (target) {
+      const dx = target.posX - this.posX, dy = target.posY - this.posY;
+      const mg = sqrt(dx * dx + dy * dy) || 1;
+      this.velX += (dx / mg) * 0.15;
+      this.velY += (dy / mg) * 0.15;
+      if (targetDist < this.cellSize + 4) { target.decayLife = 0; this.energy += 28; }
     }
 
-    if (nearDead) {
-      const dx = nearDead.posX - this.posX;
-      const dy = nearDead.posY - this.posY;
-      const mag = sqrt(dx * dx + dy * dy) || 1;
-      this.velX += (dx / mag) * 0.3;
-      this.velY += (dy / mag) * 0.3;
-
-      if (nearDeadDist < this.cellSize + 4) {
-        nearDead.decayLife = 0; // consume it
-        this.energy += 25;
-      }
-    }
-
-    // Replicate in rich conditions
-    if (this.energy > 80 && roomCfg.normHumidity() > 0.5 && random() < 0.003) {
-      trySpawnCell('decomposer', roomCfg);
+    if (this.energy > 90 && rc.normHumidity() > 0.45 && random() < 0.003) {
+      spawnCell('decomposer', rc);
       this.energy -= 30;
     }
   }
 
   draw() {
-    const alpha = map(this.energy, 0, 100, 80, 255);
-    fill(155, 127, 201, alpha);
+    const alpha = map(this.energy, 0, 110, 60, 210);
     noStroke();
-    // Irregular blob using several overlapping small circles
+    // Blobby with 3 overlapping circles
+    fill(145, 100, 200, alpha);
     for (let i = 0; i < 3; i++) {
-      const ox = sin(this.age * 0.05 + i * TWO_PI / 3) * 2;
-      const oy = cos(this.age * 0.05 + i * TWO_PI / 3) * 2;
-      ellipse(this.posX + ox, this.posY + oy, this.cellSize * 1.6, this.cellSize * 1.6);
+      const ox = sin(this.age * 0.04 + i * TWO_PI / 3) * (this.cellSize * 0.45);
+      const oy = cos(this.age * 0.04 + i * TWO_PI / 3) * (this.cellSize * 0.45);
+      ellipse(this.posX + ox, this.posY + oy, this.cellSize * 1.5, this.cellSize * 1.5);
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Dead cell (visual remnant + food for decomposers)
+// CellFungus (Schimmel) — nearly stationary, spreads by budding, loves humidity
+// ---------------------------------------------------------------------------
+class CellFungus extends BaseCell {
+  constructor(roomCfg) {
+    super(roomCfg);
+    this.cellType  = 'fungus';
+    this.maxSize   = BASE_RADIUS * random(1.5, 2.5);
+    this.lifespan  = random(900, 1800);
+    this.hyphaeAng = random(TWO_PI); // direction of hyphae filaments
+    this.velX      = 0;
+    this.velY      = 0;
+  }
+
+  update() {
+    this.baseUpdate(0.12, 0.008); // nearly stationary
+    if (this.isDead) return;
+    const rc = this.getRoomConfig();
+    if (!rc) return;
+
+    // Thrives on humidity, CO2, and mild temperature
+    this.energy += rc.normHumidity() * 0.30 + rc.normCo2() * 0.15 - 0.13;
+    // Eats nearby plants (absorbs nutrients)
+    for (const c of allCells) {
+      if ((c.cellType !== 'plant') || c.roomId !== this.roomId || c.isDead) continue;
+      const d = dist(this.posX, this.posY, c.posX, c.posY);
+      if (d < this.cellSize + c.cellSize + 2 && random() < 0.015) {
+        c.energy    -= 8;
+        this.energy += 5;
+      }
+    }
+    // Also eats nearby dead cells
+    for (const dc of deadCells) {
+      if (dc.roomId !== this.roomId) continue;
+      const d = dist(this.posX, this.posY, dc.posX, dc.posY);
+      if (d < this.cellSize + 6) { dc.decayLife = 0; this.energy += 20; }
+    }
+    this.energy = constrain(this.energy, 0, 160);
+
+    // Bud (spread) when large and well-fed
+    if (this.energy > 130 && this.cellSize > this.maxSize * 0.8 && random() < 0.004) {
+      spawnFungusNear(rc, this);
+      this.energy   -= 50;
+      this.cellSize *= 0.8;
+    }
+  }
+
+  draw() {
+    const alpha = map(this.energy, 0, 160, 50, 200);
+    const sz    = this.cellSize;
+    noStroke();
+
+    // Main body — organic noise blob
+    fill(200, 140, 60, alpha);
+    beginShape();
+    for (let a = 0; a < TWO_PI; a += 0.28) {
+      const nv = noise(this.noiseOff + cos(a) * 0.6, this.noiseOff + sin(a) * 0.6, this.age * 0.004);
+      const r  = sz * (0.7 + nv * 0.6);
+      vertex(this.posX + cos(a) * r, this.posY + sin(a) * r);
+    }
+    endShape(CLOSE);
+
+    // Hyphae filaments
+    stroke(200, 140, 60, alpha * 0.35);
+    strokeWeight(0.8);
+    const filaments = 5;
+    for (let i = 0; i < filaments; i++) {
+      const ang  = this.hyphaeAng + (i / filaments) * TWO_PI;
+      const flen = sz * (1.8 + noise(this.noiseOff + i, this.age * 0.005) * 1.4);
+      const ex   = this.posX + cos(ang) * flen;
+      const ey   = this.posY + sin(ang) * flen;
+      line(this.posX + cos(ang) * sz * 0.7, this.posY + sin(ang) * sz * 0.7, ex, ey);
+      // Tip dot
+      noStroke();
+      fill(220, 160, 80, alpha * 0.5);
+      ellipse(ex, ey, 3, 3);
+      stroke(200, 140, 60, alpha * 0.35);
+    }
+    noStroke();
+
+    // Spore dots on top
+    fill(255, 200, 100, alpha * 0.7);
+    for (let i = 0; i < 3; i++) {
+      const ox = sin(this.age * 0.06 + i * 2.1) * sz * 0.4;
+      const oy = cos(this.age * 0.06 + i * 2.1) * sz * 0.4;
+      ellipse(this.posX + ox, this.posY + oy, 2.5, 2.5);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dead cell remnant
 // ---------------------------------------------------------------------------
 class DeadCell {
   constructor(liveCell) {
     this.posX      = liveCell.posX;
     this.posY      = liveCell.posY;
     this.roomId    = liveCell.roomId;
-    this.decayLife = DEAD_DECAY_LIFE;
-    this.cellType  = liveCell.cellType;
+    this.decayLife = DEAD_DECAY;
+    this.sz        = liveCell.cellSize * 0.7;
   }
-
   update() { this.decayLife--; }
   isGone()  { return this.decayLife <= 0; }
-
   draw() {
-    const alpha = map(this.decayLife, 0, DEAD_DECAY_LIFE, 0, 100);
-    fill(85, 85, 85, alpha);
+    const alpha = map(this.decayLife, 0, DEAD_DECAY, 0, 80);
+    fill(100, 90, 80, alpha);
     noStroke();
-    ellipse(this.posX, this.posY, CELL_RADIUS * 1.4, CELL_RADIUS * 1.4);
+    ellipse(this.posX, this.posY, this.sz * 2, this.sz * 2);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Cell factory
+// Cell factory + spawn helpers
 // ---------------------------------------------------------------------------
 function makeCell(cellTypeName, roomCfg) {
   switch (cellTypeName) {
-    case 'producer':   return new CellProducer(roomCfg);
+    case 'plant':      return new CellPlant(roomCfg);
     case 'herbivore':  return new CellHerbivore(roomCfg);
     case 'predator':   return new CellPredator(roomCfg);
     case 'decomposer': return new CellDecomposer(roomCfg);
-    default: return new CellProducer(roomCfg);
+    case 'fungus':     return new CellFungus(roomCfg);
+    default:           return new CellPlant(roomCfg);
   }
 }
 
-function trySpawnCell(cellTypeName, roomCfg) {
+function spawnCell(cellTypeName, roomCfg) {
   const roomCells = allCells.filter(c => c.roomId === roomCfg.id);
   if (roomCells.length >= MAX_CELLS_ROOM) return;
   allCells.push(makeCell(cellTypeName, roomCfg));
+}
+
+function spawnFungusNear(roomCfg, parent) {
+  const roomCells = allCells.filter(c => c.roomId === roomCfg.id);
+  if (roomCells.length >= MAX_CELLS_ROOM) return;
+  const child = new CellFungus(roomCfg);
+  const ang   = random(TWO_PI);
+  const dist  = parent.cellSize * 2 + random(4, 12);
+  child.posX  = constrain(parent.posX + cos(ang) * dist, 8, canvasW - 8);
+  child.posY  = constrain(parent.posY + sin(ang) * dist,
+    roomCfg.bounds.y + 8, roomCfg.bounds.y + floorH - 8);
+  child.energy = 60;
+  allCells.push(child);
 }
 
 // ---------------------------------------------------------------------------
 // Seed initial population
 // ---------------------------------------------------------------------------
 function seedPopulation() {
-  allCells = [];
+  allCells  = [];
   deadCells = [];
-  for (const roomCfg of roomDataList) {
-    for (const typeName of ['producer', 'herbivore', 'predator', 'decomposer']) {
+  for (const rc of roomDataList) {
+    for (const t of ['plant', 'plant', 'herbivore', 'predator', 'decomposer', 'fungus']) {
       for (let i = 0; i < INITIAL_CELLS; i++) {
-        allCells.push(makeCell(typeName, roomCfg));
+        allCells.push(makeCell(t, rc));
       }
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Load / refresh data from rooms.json
+// Data loading
 // ---------------------------------------------------------------------------
 function loadRoomsData() {
-  // Fetch from GitHub raw so the ha-rooms-updater service can push live sensor data.
-  // Cache-busting timestamp forces the browser to bypass cached responses.
   const rawUrl = 'https://raw.githubusercontent.com/michelschep/p5js-living-rooms/main/rooms.json';
   fetch(rawUrl + '?t=' + Date.now())
-    .then(resp => resp.json())
+    .then(r => r.json())
     .then(data => {
       appConfig = data;
       if (!dataLoaded) {
-        // First load: build room objects and seed
         roomDataList = data.rooms.map(r => new RoomConfig(r));
         seedPopulation();
-        dataLoaded = true;
+        dataLoaded   = true;
       } else {
-        // Subsequent refresh: update sensor values only
-        for (const rawRoom of data.rooms) {
-          const existing = roomDataList.find(r => r.id === rawRoom.id);
-          if (existing) existing.update(rawRoom.sensors);
+        for (const raw of data.rooms) {
+          const ex = roomDataList.find(r => r.id === raw.id);
+          if (ex) ex.update(raw.sensors);
         }
       }
-      lastRefreshTime = millis();
-      nextRefreshSecs = data.refreshIntervalMs / 1000;
+      lastRefreshMs = millis();
+      refreshSecs   = data.refreshIntervalMs / 1000;
       document.getElementById('status-bar').textContent =
         '✅ Data geladen — ' + new Date().toLocaleTimeString('nl-NL');
     })
     .catch(() => {
-      // Offline / no server: use embedded fallback
       if (!dataLoaded) {
-        appConfig = buildFallbackConfig();
+        appConfig    = fallbackConfig();
         roomDataList = appConfig.rooms.map(r => new RoomConfig(r));
         seedPopulation();
-        dataLoaded = true;
-        lastRefreshTime = millis();
-        nextRefreshSecs = 180;
-        document.getElementById('status-bar').textContent =
-          '⚠️ Offline modus — statische demo data';
+        dataLoaded   = true;
+        lastRefreshMs = millis();
+        document.getElementById('status-bar').textContent = '⚠️ Offline — demo data';
       }
     });
 }
 
-function buildFallbackConfig() {
+function fallbackConfig() {
   return {
     refreshIntervalMs: 180000,
     rooms: [
-      { id: 'floor1', name: 'Begane grond',       floor: 1, sensors: { temperature: 21.5, humidity: 55, light: 320, motion: false, co2: 820 } },
-      { id: 'floor2', name: 'Eerste verdieping',  floor: 2, sensors: { temperature: 19.2, humidity: 62, light: 80,  motion: true,  co2: 650 } },
-      { id: 'floor3', name: 'Tweede verdieping',  floor: 3, sensors: { temperature: 17.8, humidity: 45, light: 15,  motion: false, co2: 480 } }
+      { id: 'floor1', name: 'Begane grond',      floor: 1, sensors: { temperature: 21.5, humidity: 55, light: 320, motion: false, co2: 820 } },
+      { id: 'floor2', name: 'Eerste verdieping', floor: 2, sensors: { temperature: 19.2, humidity: 62, light: 80,  motion: true,  co2: 650 } },
+      { id: 'floor3', name: 'Tweede verdieping', floor: 3, sensors: { temperature: 17.8, humidity: 45, light: 15,  motion: false, co2: 480 } }
     ],
     doors: [
       { fromFloor: 1, toFloor: 2, positionFraction: 0.5 },
@@ -638,162 +658,121 @@ function buildFallbackConfig() {
 // ---------------------------------------------------------------------------
 // Draw helpers
 // ---------------------------------------------------------------------------
-function drawRoomBackground(roomCfg) {
-  const b = roomCfg.bounds;
-
-  // Base room colour tinted by temperature
-  const tempTint = roomCfg.normTemp();
-  const lightTint = roomCfg.normLight();
-  const rVal = 15 + tempTint * 25;
-  const gVal = 15 + lightTint * 18;
-  const bVal = 25 + (1 - tempTint) * 20;
-  fill(rVal, gVal, bVal);
+function drawRoomBackground(rc) {
+  const b         = rc.bounds;
+  const tTemp     = rc.normTemp();
+  const tLight    = rc.normLight();
+  fill(12 + tTemp * 18, 14 + tLight * 14, 18 + (1 - tTemp) * 12);
   noStroke();
   rect(b.x, b.y, b.w, b.h);
-
-  // Subtle floor label strip
-  fill(0, 0, 0, 60);
-  rect(b.x, b.y, b.w, 22);
 }
 
 function drawDoors() {
-  if (!appConfig || !appConfig.doors) return;
-  for (const door of appConfig.doors) {
-    const di = doorInfo(door.fromFloor, door.toFloor, door.positionFraction);
-
-    // Whole gap between floors is dark
-    fill(8, 8, 8);
+  if (!appConfig?.doors) return;
+  for (const d of appConfig.doors) {
+    const di = doorInfo(d.fromFloor, d.toFloor, d.positionFraction);
+    // Whole gap: dark wall
+    fill(6, 6, 6);
     noStroke();
-    rect(0, di.y, CANVAS_W, BORDER_H);
-
-    // Door opening highlight
-    fill(40, 60, 40, 180);
+    rect(0, di.y, canvasW, di.h);
+    // Door opening
+    fill(28, 45, 28, 200);
     noStroke();
-    rect(di.x, di.y, di.w, BORDER_H);
-
-    // Door frame lines
-    stroke(80, 120, 80, 160);
+    rect(di.x, di.y, di.w, di.h);
+    // Frame lines
+    stroke(60, 100, 60, 150);
     strokeWeight(1);
-    line(di.x, di.y, di.x, di.y + BORDER_H);
-    line(di.x + di.w, di.y, di.x + di.w, di.y + BORDER_H);
+    line(di.x, di.y, di.x, di.y + di.h);
+    line(di.x + di.w, di.y, di.x + di.w, di.y + di.h);
     noStroke();
   }
 }
 
-function drawRoomHUD(roomCfg) {
-  const b   = roomCfg.bounds;
-  const s   = roomCfg.sensors;
-  const mx  = b.x + HUD_MARGIN;
-  const myStart = b.y + HUD_MARGIN + 2;
-
-  // Count cells in this room
-  let cntProducer = 0, cntHerbivore = 0, cntPredator = 0, cntDecomposer = 0;
-  for (const c of allCells) {
-    if (c.roomId !== roomCfg.id) continue;
-    if (c.cellType === 'producer')   cntProducer++;
-    else if (c.cellType === 'herbivore')  cntHerbivore++;
-    else if (c.cellType === 'predator')   cntPredator++;
-    else if (c.cellType === 'decomposer') cntDecomposer++;
-  }
-
-  textSize(11);
-  textAlign(LEFT, TOP);
-  noStroke();
-
-  // Room name — bright
-  fill(200, 240, 200);
-  text('▣ ' + roomCfg.roomName, mx, myStart);
-
-  // Sensor row
-  fill(180, 180, 180);
-  const sensorRow = myStart + 14;
-  const motionIcon = s.motion ? '🏃' : '💤';
-  text(
-    `🌡 ${s.temperature.toFixed(1)}°C  💧 ${s.humidity}%  💡 ${s.light} lux  ${motionIcon}  CO₂ ${s.co2}ppm`,
-    mx, sensorRow
-  );
-
-  // Cell counts
-  fill(130, 210, 150);
-  text(`🌿 ${cntProducer}`, mx, sensorRow + 14);
-  fill(120, 190, 220);
-  text(`🔵 ${cntHerbivore}`, mx + 52, sensorRow + 14);
-  fill(220, 120, 120);
-  text(`🔴 ${cntPredator}`, mx + 110, sensorRow + 14);
-  fill(180, 150, 220);
-  text(`🟣 ${cntDecomposer}`, mx + 168, sensorRow + 14);
-}
-
-function drawRefreshCountdown() {
+// Update DOM metric panels (called every 60 frames)
+function updateDomPanels() {
   if (!dataLoaded) return;
-  const elapsedSec = (millis() - lastRefreshTime) / 1000;
-  const remaining  = Math.max(0, nextRefreshSecs - elapsedSec) | 0;
-  const mins = (remaining / 60) | 0;
-  const secs = remaining % 60;
-  document.getElementById('refresh-info').textContent =
-    `⟳ Volgende data-refresh over ${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+  for (const rc of roomDataList) {
+    const s = rc.sensors;
+    const sEl = document.getElementById('sensors-floor' + rc.floorNum);
+    const cEl = document.getElementById('counts-floor' + rc.floorNum);
+    if (!sEl || !cEl) continue;
+
+    const motStr = s.motion ? '🏃 beweging' : '💤 stil';
+    sEl.innerHTML =
+      `<span class="sensor-val">🌡 ${s.temperature.toFixed(1)}°C</span>` +
+      `<span class="sensor-val">💧 ${s.humidity}%</span>` +
+      `<span class="sensor-val">💡 ${s.light} lux</span>` +
+      `<span class="sensor-val">${motStr}</span>` +
+      `<span class="sensor-val">CO₂ ${s.co2}ppm</span>`;
+
+    let cntP=0, cntH=0, cntPr=0, cntD=0, cntF=0;
+    for (const c of allCells) {
+      if (c.roomId !== rc.id) continue;
+      if      (c.cellType === 'plant')      cntP++;
+      else if (c.cellType === 'herbivore')  cntH++;
+      else if (c.cellType === 'predator')   cntPr++;
+      else if (c.cellType === 'decomposer') cntD++;
+      else if (c.cellType === 'fungus')     cntF++;
+    }
+    cEl.innerHTML =
+      `<span class="count-item" style="color:#4daf5e">🌿 ${cntP}</span>` +
+      `<span class="count-item" style="color:#5ab4d4">💧 ${cntH}</span>` +
+      `<span class="count-item" style="color:#d45a5a">🔴 ${cntPr}</span>` +
+      `<span class="count-item" style="color:#9b7fc9">🟣 ${cntD}</span>` +
+      `<span class="count-item" style="color:#c8904a">🍄 ${cntF}</span>`;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // p5.js lifecycle
 // ---------------------------------------------------------------------------
 function setup() {
-  const canvas = createCanvas(CANVAS_W, CANVAS_H);
-  canvas.parent('canvas-container');
+  recomputeLayout();
+  const cnv = createCanvas(canvasW, canvasH);
+  cnv.parent('canvas-container');
   loadRoomsData();
 }
 
+function windowResized() {
+  recomputeLayout();
+  resizeCanvas(canvasW, canvasH);
+}
+
 function draw() {
-  // Data not yet loaded
   if (!dataLoaded) {
-    background(13, 13, 13);
+    background(10, 10, 10);
     fill(100, 200, 120);
     textAlign(CENTER, CENTER);
     textSize(14);
-    text('Laden…', CANVAS_W / 2, CANVAS_H / 2);
+    text('Laden…', canvasW / 2, canvasH / 2);
     return;
   }
 
-  // Check if refresh interval elapsed
-  if (millis() - lastRefreshTime > appConfig.refreshIntervalMs) {
+  if (millis() - lastRefreshMs > (appConfig?.refreshIntervalMs ?? 180000)) {
     loadRoomsData();
   }
 
-  // Background fill
-  background(13, 13, 13);
+  background(10, 10, 10);
 
-  // Draw each room
-  for (const roomCfg of roomDataList) {
-    drawRoomBackground(roomCfg);
-  }
-
-  // Draw door gaps on top of room backgrounds
+  for (const rc of roomDataList) drawRoomBackground(rc);
   drawDoors();
 
-  // Draw dead cells
-  for (const dc of deadCells) {
-    dc.update();
-    dc.draw();
-  }
+  // Dead cells
+  for (const dc of deadCells) { dc.update(); dc.draw(); }
   deadCells = deadCells.filter(dc => !dc.isGone());
 
-  // Update + draw living cells
-  for (const cell of allCells) {
-    cell.update();
-    cell.draw();
-    if (cell.isDead) {
-      deadCells.push(new DeadCell(cell));
-    }
+  // Living cells
+  for (const c of allCells) {
+    c.update();
+    c.draw();
+    if (c.isDead) deadCells.push(new DeadCell(c));
   }
   allCells = allCells.filter(c => !c.isDead);
 
-  // Room HUDs (drawn after cells so text is on top)
-  for (const roomCfg of roomDataList) {
-    drawRoomHUD(roomCfg);
-  }
-
-  // Refresh countdown (DOM, not canvas)
-  if (frameCount % 60 === 0) {
-    drawRefreshCountdown();
+  // Update DOM panels every 60 frames (~1s)
+  domUpdateTimer++;
+  if (domUpdateTimer >= 60) {
+    updateDomPanels();
+    domUpdateTimer = 0;
   }
 }

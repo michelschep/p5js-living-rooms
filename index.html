@@ -9,73 +9,142 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background: #0d0d0d;
+      background: #0a0a0a;
       display: flex;
       flex-direction: column;
       align-items: center;
       font-family: 'Courier New', monospace;
-      color: #ddd;
-      padding: 12px;
+      color: #ccc;
+      padding: 8px;
       min-height: 100vh;
     }
 
     h1 {
-      font-size: 18px;
+      font-size: clamp(13px, 3vw, 18px);
       letter-spacing: 3px;
       color: #7ec8a0;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       text-transform: uppercase;
+      text-align: center;
     }
 
-    #canvas-container {
-      position: relative;
+    #canvas-container canvas {
+      display: block;
+      max-width: 100%;
     }
 
+    /* ── Metrics panels ── */
+    #metrics-container {
+      width: 100%;
+      max-width: 900px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    @media (max-width: 600px) {
+      #metrics-container { grid-template-columns: 1fr; }
+    }
+
+    .floor-panel {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: clamp(10px, 2.5vw, 12px);
+    }
+
+    .floor-panel h3 {
+      color: #7ec8a0;
+      font-size: clamp(11px, 2.8vw, 13px);
+      margin-bottom: 5px;
+      border-bottom: 1px solid #222;
+      padding-bottom: 4px;
+    }
+
+    .sensor-row {
+      color: #aaa;
+      margin: 2px 0;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .sensor-val { color: #ddd; }
+
+    .count-row {
+      margin-top: 5px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .count-item { font-size: clamp(10px, 2.5vw, 12px); }
+
+    /* ── Legend + status ── */
     #status-bar {
-      margin-top: 10px;
-      font-size: 11px;
-      color: #555;
-      letter-spacing: 1px;
-    }
-
-    #refresh-info {
-      margin-top: 4px;
-      font-size: 11px;
+      margin-top: 6px;
+      font-size: clamp(9px, 2vw, 11px);
       color: #444;
+      text-align: center;
     }
 
     .legend {
       display: flex;
-      gap: 18px;
-      margin-top: 10px;
-      font-size: 11px;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 8px;
+      font-size: clamp(9px, 2vw, 11px);
     }
 
     .legend-item {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
 
     .legend-dot {
-      width: 12px;
-      height: 12px;
+      width: 11px;
+      height: 11px;
       border-radius: 50%;
+      flex-shrink: 0;
     }
   </style>
 </head>
 <body>
   <h1>🏠 Living Rooms — Cellular Life</h1>
   <div id="canvas-container"></div>
-  <div id="status-bar">Laden van kamerdata…</div>
-  <div id="refresh-info"></div>
-  <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#5ecf7a"></div> Producer</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#5ab4d4"></div> Herbivoor</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#e05c5c"></div> Predator</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#9b7fc9"></div> Decomposer</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#555"></div> Dood</div>
+
+  <div id="metrics-container">
+    <div class="floor-panel" id="panel-floor3">
+      <h3>Tweede verdieping</h3>
+      <div class="sensor-row" id="sensors-floor3">—</div>
+      <div class="count-row"  id="counts-floor3">—</div>
+    </div>
+    <div class="floor-panel" id="panel-floor2">
+      <h3>Eerste verdieping</h3>
+      <div class="sensor-row" id="sensors-floor2">—</div>
+      <div class="count-row"  id="counts-floor2">—</div>
+    </div>
+    <div class="floor-panel" id="panel-floor1">
+      <h3>Begane grond</h3>
+      <div class="sensor-row" id="sensors-floor1">—</div>
+      <div class="count-row"  id="counts-floor1">—</div>
+    </div>
   </div>
+
+  <div id="status-bar">Laden van kamerdata…</div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#4daf5e"></div> Plant</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#5ab4d4"></div> Herbivoor</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d45a5a"></div> Predator</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#9b7fc9"></div> Decomposer</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c8904a"></div> Schimmel</div>
+  </div>
+
   <script src="sketch.js"></script>
 </body>
 </html>
