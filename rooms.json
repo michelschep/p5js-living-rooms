@@ -8,7 +8,7 @@
       "sensors": {
         "temperature": 20.2,
         "humidity": 556,
-        "light": 50,
+        "light": 500,
         "motion": false,
         "co2": 600
       }
@@ -30,7 +30,7 @@
       "name": "Tweede verdieping",
       "floor": 3,
       "sensors": {
-        "temperature": 19.5,
+        "temperature": 18,
         "humidity": 50,
         "light": 50,
         "motion": false,
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T16:31:45Z"
+  "lastUpdated": "2026-03-25T16:32:06Z"
 }
