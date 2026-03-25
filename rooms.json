@@ -6,9 +6,9 @@
       "name": "Begane grond",
       "floor": 1,
       "sensors": {
-        "temperature": 20.4,
-        "humidity": 65,
-        "light": 65,
+        "temperature": 20.2,
+        "humidity": 556,
+        "light": 50,
         "motion": false,
         "co2": 600
       }
@@ -20,7 +20,7 @@
       "sensors": {
         "temperature": 20.4,
         "humidity": 50,
-        "light": 65,
+        "light": 556,
         "motion": false,
         "co2": 600
       }
@@ -30,11 +30,11 @@
       "name": "Tweede verdieping",
       "floor": 3,
       "sensors": {
-        "temperature": 20.4,
+        "temperature": 19.5,
         "humidity": 50,
-        "light": 65,
+        "light": 50,
         "motion": false,
-        "co2": 600
+        "co2": 650
       }
     }
   ],
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T16:17:27Z"
+  "lastUpdated": "2026-03-25T16:30:44Z"
 }
