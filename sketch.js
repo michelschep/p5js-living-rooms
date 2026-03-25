@@ -31,8 +31,8 @@ function recomputeLayout() {
 const BASE_RADIUS    = 7;    // base cell radius (cells also grow)
 const MAX_CELLS_ROOM = 100;  // cap per room
 const INITIAL_CELLS  = 12;   // per type per room
-const DEAD_DECAY     = 280;  // frames a dead cell lingers
-const DAMPING        = 0.96; // velocity damping each frame — keeps movement calm
+const DEAD_DECAY     = 400;  // frames a dead cell lingers
+const DAMPING        = 0.975; // velocity damping — higher = more zen/slower
 
 // ---------------------------------------------------------------------------
 // App state
@@ -103,8 +103,8 @@ class BaseCell {
     this.posY      = b.y + random(BASE_RADIUS + 6, b.h - BASE_RADIUS - 6);
     this.velX      = random(-0.3, 0.3);
     this.velY      = random(-0.3, 0.3);
-    this.energy    = random(50, 90);
-    this.lifespan  = random(600, 1200);
+    this.energy    = random(80, 140);   // more starting energy
+    this.lifespan  = random(1800, 4000); // much longer lifespan
     this.age       = 0;
     this.cellSize  = BASE_RADIUS * random(0.7, 1.0);  // start small, grows
     this.maxSize   = BASE_RADIUS * random(1.0, 1.6);
@@ -199,7 +199,7 @@ class BaseCell {
 
   baseUpdate(maxSpd, driftAmt) {
     this.age++;
-    this.energy -= 0.10;
+    this.energy -= 0.03;  // much lower base cost: 1.8 energy/sec at 60fps
     this.grow();
     this.applyEnvironment();
     this.velX += random(-driftAmt, driftAmt);
@@ -222,26 +222,27 @@ class CellPlant extends BaseCell {
   constructor(roomCfg) {
     super(roomCfg);
     this.cellType = 'plant';
-    this.lobes    = floor(random(3, 7));  // number of organic lobes
+    this.lobes    = floor(random(3, 7));
     this.maxSize  = BASE_RADIUS * random(1.4, 2.2);
+    this.lifespan = random(2000, 5000); // plants live long
   }
 
   update() {
-    this.baseUpdate(0.25, 0.015); // very slow
+    this.baseUpdate(0.15, 0.008); // nearly stationary
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
 
-    this.energy += rc.normLight() * 0.55;         // photosynthesis
-    this.energy -= rc.normCo2() * 0.18;           // CO2 stress
-    this.energy += rc.normHumidity() * 0.07;
-    this.energy  = constrain(this.energy, 0, 130);
+    this.energy += rc.normLight() * 0.38;     // photosynthesis — main income
+    this.energy += rc.normHumidity() * 0.06;  // moisture helps
+    this.energy -= rc.normCo2() * 0.04;       // mild CO2 stress only
+    this.energy  = constrain(this.energy, 0, 160);
 
     // Split when big and well-lit
-    if (this.energy > 110 && this.cellSize > this.maxSize * 0.85 && rc.normLight() > 0.25 && random() < 0.003) {
+    if (this.energy > 130 && this.cellSize > this.maxSize * 0.85 && rc.normLight() > 0.15 && random() < 0.003) {
       spawnCell('plant', rc);
       this.energy   -= 40;
-      this.cellSize *= 0.75; // shrink after split
+      this.cellSize *= 0.75;
     }
   }
 
@@ -278,7 +279,7 @@ class CellHerbivore extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.65, 0.04);
+    this.baseUpdate(0.45, 0.018);
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
@@ -293,11 +294,11 @@ class CellHerbivore extends BaseCell {
     if (prey) {
       const dx = prey.posX - this.posX, dy = prey.posY - this.posY;
       const mg = sqrt(dx * dx + dy * dy) || 1;
-      this.velX += (dx / mg) * 0.25;
-      this.velY += (dy / mg) * 0.25;
+      this.velX += (dx / mg) * 0.18;
+      this.velY += (dy / mg) * 0.18;
       if (preyDist < this.cellSize + prey.cellSize + 1) {
         prey.isDead  = true;
-        this.energy += 40;
+        this.energy += 45;
       }
     }
 
@@ -306,13 +307,13 @@ class CellHerbivore extends BaseCell {
       if (c.cellType !== 'predator' || c.roomId !== this.roomId || c.isDead) continue;
       const d = dist(this.posX, this.posY, c.posX, c.posY);
       if (d < 80) {
-        this.velX -= (c.posX - this.posX) * 0.04;
-        this.velY -= (c.posY - this.posY) * 0.04;
+        this.velX -= (c.posX - this.posX) * 0.03;
+        this.velY -= (c.posY - this.posY) * 0.03;
       }
     }
 
-    this.energy = constrain(this.energy - 0.06, 0, 120);
-    if (this.energy > 100 && random() < 0.003) { spawnCell('herbivore', rc); this.energy -= 40; }
+    this.energy = constrain(this.energy - 0.02, 0, 140);
+    if (this.energy > 115 && random() < 0.003) { spawnCell('herbivore', rc); this.energy -= 40; }
   }
 
   draw() {
@@ -346,13 +347,14 @@ class CellPredator extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.9, 0.03);
+    this.baseUpdate(0.60, 0.012);
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
 
-    this.energy += rc.normTemp() * 0.12 - (1 - rc.normTemp()) * 0.10 - 0.15;
-    this.energy  = constrain(this.energy, 0, 140);
+    // Warm rooms help predators; remove heavy baseline penalty
+    this.energy += rc.normTemp() * 0.07 - 0.04;
+    this.energy  = constrain(this.energy, 0, 160);
 
     let prey = null, preyDist = 110;
     for (const c of allCells) {
@@ -367,10 +369,10 @@ class CellPredator extends BaseCell {
       this.velY += (dy / mg) * 0.35;
       if (preyDist < this.cellSize + prey.cellSize + 1) {
         prey.isDead  = true;
-        this.energy += 55;
+        this.energy += 60;
       }
     }
-    if (this.energy > 120 && random() < 0.002) { spawnCell('predator', rc); this.energy -= 55; }
+    if (this.energy > 135 && random() < 0.002) { spawnCell('predator', rc); this.energy -= 55; }
   }
 
   draw() {
@@ -404,13 +406,13 @@ class CellDecomposer extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.35, 0.02);
+    this.baseUpdate(0.22, 0.010);
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
 
-    this.energy += rc.normHumidity() * 0.18 + rc.normCo2() * 0.18 - 0.12;
-    this.energy  = constrain(this.energy, 0, 110);
+    this.energy += rc.normHumidity() * 0.14 + rc.normCo2() * 0.10 - 0.03;
+    this.energy  = constrain(this.energy, 0, 130);
 
     let target = null, targetDist = 70;
     for (const dc of deadCells) {
@@ -423,10 +425,10 @@ class CellDecomposer extends BaseCell {
       const mg = sqrt(dx * dx + dy * dy) || 1;
       this.velX += (dx / mg) * 0.15;
       this.velY += (dy / mg) * 0.15;
-      if (targetDist < this.cellSize + 4) { target.decayLife = 0; this.energy += 28; }
+      if (targetDist < this.cellSize + 4) { target.decayLife = 0; this.energy += 32; }
     }
 
-    if (this.energy > 90 && rc.normHumidity() > 0.45 && random() < 0.003) {
+    if (this.energy > 105 && rc.normHumidity() > 0.40 && random() < 0.003) {
       spawnCell('decomposer', rc);
       this.energy -= 30;
     }
@@ -453,7 +455,7 @@ class CellFungus extends BaseCell {
     super(roomCfg);
     this.cellType  = 'fungus';
     this.maxSize   = BASE_RADIUS * random(1.5, 2.5);
-    this.lifespan  = random(900, 1800);
+    this.lifespan  = random(2000, 4000); // long-lived
     this.hyphaeAng = random(TWO_PI); // direction of hyphae filaments
     this.velX      = 0;
     this.velY      = 0;
@@ -466,7 +468,7 @@ class CellFungus extends BaseCell {
     if (!rc) return;
 
     // Thrives on humidity, CO2, and mild temperature
-    this.energy += rc.normHumidity() * 0.30 + rc.normCo2() * 0.15 - 0.13;
+    this.energy += rc.normHumidity() * 0.22 + rc.normCo2() * 0.10 - 0.03;
     // Eats nearby plants (absorbs nutrients)
     for (const c of allCells) {
       if ((c.cellType !== 'plant') || c.roomId !== this.roomId || c.isDead) continue;
@@ -482,10 +484,10 @@ class CellFungus extends BaseCell {
       const d = dist(this.posX, this.posY, dc.posX, dc.posY);
       if (d < this.cellSize + 6) { dc.decayLife = 0; this.energy += 20; }
     }
-    this.energy = constrain(this.energy, 0, 160);
+    this.energy = constrain(this.energy, 0, 190);
 
     // Bud (spread) when large and well-fed
-    if (this.energy > 130 && this.cellSize > this.maxSize * 0.8 && random() < 0.004) {
+    if (this.energy > 155 && this.cellSize > this.maxSize * 0.8 && random() < 0.003) {
       spawnFungusNear(rc, this);
       this.energy   -= 50;
       this.cellSize *= 0.8;
