@@ -801,48 +801,24 @@ function fallbackConfig() {
 // ---------------------------------------------------------------------------
 // Draw helpers
 // ---------------------------------------------------------------------------
-// Fixed colors per floor: each floor always has its own distinct color
-const FLOOR_COLORS = {
-  1: [55, 40, 25],   // begane grond: warm dark wood / terracotta
-  2: [30, 40, 60],   // eerste verdieping: cool slate blue
-  3: [15, 25, 50],   // tweede verdieping: dark cold navy
-};
-
-function floorColor(floorNum) {
-  return FLOOR_COLORS[floorNum] || [30, 30, 30];
-}
+// Single background color for all floors and corridors
+const FLOOR_BG = [25, 35, 45];  // dark blue-grey, same everywhere
 
 function drawRoomBackground(rc) {
   const b = rc.bounds;
-  const [r, g, b_] = floorColor(rc.floorNum);
-  fill(r, g, b_);
+  fill(FLOOR_BG[0], FLOOR_BG[1], FLOOR_BG[2]);
   noStroke();
   rect(b.x, b.y, b.w, b.h);
 }
 
 function drawFloorDividers() {
-  // Draw corridors as gradient between the two adjacent fixed floor colors
+  // Corridors same color as rooms — seamless
   for (let f = 1; f <= 2; f++) {
-    const rcLow  = roomDataList.find(r => r.floorNum === f);
-    const rcHigh = roomDataList.find(r => r.floorNum === f + 1);
-    if (!rcLow || !rcHigh) continue;
     const corrY = floorTopY(f) + floorH;
-
-    const [r1, g1, b1] = floorColor(f);
-    const [r2, g2, b2] = floorColor(f + 1);
-
-    const steps = 10;
-    for (let i = 0; i < steps; i++) {
-      const t = i / steps;
-      fill(
-        lerp(r1, r2, t),
-        lerp(g1, g2, t),
-        lerp(b1, b2, t)
-      );
-      noStroke();
-      rect(0, corrY + (i / steps) * CORRIDOR_H, canvasW, CORRIDOR_H / steps + 1);
-    }
-    stroke(20, 35, 20, 60);
+    fill(FLOOR_BG[0], FLOOR_BG[1], FLOOR_BG[2]);
+    noStroke();
+    rect(0, corrY, canvasW, CORRIDOR_H);
+    stroke(255, 255, 255, 20);
     strokeWeight(0.5);
     line(0, corrY, canvasW, corrY);
     line(0, corrY + CORRIDOR_H, canvasW, corrY + CORRIDOR_H);
