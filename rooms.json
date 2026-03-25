@@ -7,7 +7,7 @@
       "floor": 1,
       "sensors": {
         "temperature": 22,
-        "humidity": 556,
+        "humidity": 493,
         "light": 500,
         "motion": false,
         "co2": 600
@@ -20,7 +20,7 @@
       "sensors": {
         "temperature": 19.3,
         "humidity": 50,
-        "light": 556,
+        "light": 493,
         "motion": false,
         "co2": 600
       }
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T16:36:29Z"
+  "lastUpdated": "2026-03-25T16:37:30Z"
 }
