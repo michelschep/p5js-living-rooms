@@ -18,7 +18,7 @@
       "name": "Eerste verdieping",
       "floor": 2,
       "sensors": {
-        "temperature": 20.4,
+        "temperature": 19.3,
         "humidity": 50,
         "light": 556,
         "motion": false,
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T16:32:06Z"
+  "lastUpdated": "2026-03-25T16:33:07Z"
 }
