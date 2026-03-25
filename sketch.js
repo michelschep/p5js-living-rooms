@@ -802,24 +802,16 @@ function fallbackConfig() {
 // Draw helpers
 // ---------------------------------------------------------------------------
 function drawRoomBackground(rc) {
-  const b      = rc.bounds;
-  const tTemp  = rc.normTemp();
-  const tLight = rc.normLight();
-  const tHum   = rc.normHumidity();
+  const b   = rc.bounds;
+  const tT  = rc.normTemp();
+  const tL  = rc.normLight();
+  const tH  = rc.normHumidity();
 
-  // Light = primary brightness driver (5=pitch dark, 135=well lit)
-  const base = 5 + tLight * 130;
-
-  // Warm rooms → amber/orange tint; cold rooms → blue tint
-  const warmBias = tTemp * 55;
-  const coolBias = (1 - tTemp) * 50;
-
-  // Humid rooms → slight green-blue (damp feel)
-  const humBias = tHum * 22;
-
-  const rCh = constrain(base + warmBias - humBias * 0.4, 0, 255);
-  const gCh = constrain(base - warmBias * 0.15 + humBias * 0.7, 0, 255);
-  const bCh = constrain(base + coolBias + humBias * 0.5, 0, 255);
+  // Aggressive formula — rooms must look clearly different
+  // Light = dominant brightness, Temp = warm(R)/cold(B) tint, Humidity = green-blue damp
+  const rCh = constrain(tL * 180 + tT * 60 - tH * 30, 0, 255);
+  const gCh = constrain(tL * 120 + tH * 40 - (1 - tT) * 20, 0, 255);
+  const bCh = constrain(tL * 60  + (1 - tT) * 100 + tH * 60, 0, 255);
 
   fill(rCh, gCh, bCh);
   noStroke();
@@ -841,14 +833,10 @@ function drawFloorDividers() {
       const tT  = rcLow.normTemp()     + (rcHigh.normTemp()     - rcLow.normTemp())     * t;
       const tL  = rcLow.normLight()    + (rcHigh.normLight()    - rcLow.normLight())    * t;
       const tH  = rcLow.normHumidity() + (rcHigh.normHumidity() - rcLow.normHumidity()) * t;
-      const base = 5 + tL * 130;
-      const warmBias = tT * 55;
-      const coolBias = (1 - tT) * 50;
-      const humBias  = tH * 22;
       fill(
-        constrain(base + warmBias - humBias * 0.4, 0, 255),
-        constrain(base - warmBias * 0.15 + humBias * 0.7, 0, 255),
-        constrain(base + coolBias + humBias * 0.5, 0, 255)
+        constrain(tL * 180 + tT * 60 - tH * 30, 0, 255),
+        constrain(tL * 120 + tH * 40 - (1 - tT) * 20, 0, 255),
+        constrain(tL * 60  + (1 - tT) * 100 + tH * 60, 0, 255)
       );
       noStroke();
       rect(0, corrY + (i / steps) * CORRIDOR_H, canvasW, CORRIDOR_H / steps + 1);
