@@ -15,6 +15,7 @@ let canvasW  = 700;
 let floorH   = 210;
 let canvasH  = 630;
 
+const CORRIDOR_H  = 40;   // visible open corridor between floors (wider = easier passage)
 const MIN_FLOOR_H = 140;
 
 function recomputeLayout() {
@@ -26,7 +27,7 @@ function recomputeLayout() {
     canvasW = Math.min(availW, 700);
   }
   floorH  = canvasW < 400 ? MIN_FLOOR_H : 210;
-  canvasH = 3 * floorH;   // no door gaps — fully open space
+  canvasH = 3 * floorH + 2 * CORRIDOR_H;  // corridors add height
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,8 @@ let domUpdateTimer = 0;
 // ---------------------------------------------------------------------------
 function floorTopY(floorNum) {
   // Floor 3 → top (row 0), Floor 1 → bottom (row 2)
-  return (3 - floorNum) * floorH;
+  // Each floor slot = floorH + CORRIDOR_H, except last has no trailing corridor
+  return (3 - floorNum) * (floorH + CORRIDOR_H);
 }
 
 function floorBounds(floorNum) {
@@ -145,7 +147,8 @@ class BaseCell {
     if (this.posY > canvasH - mg) { this.posY = canvasH - mg; this.velY *= -1; }
   }
 
-  // Update room membership based on current Y position
+  // Update room membership based on current Y position.
+  // If in a corridor zone, keep the current room (cell is passing through).
   updateRoomByPosition() {
     for (const rc of roomDataList) {
       const b = rc.bounds;
@@ -155,6 +158,15 @@ class BaseCell {
         return;
       }
     }
+    // In corridor — find nearest floor by distance and assign to it
+    let nearest = null, nearestDist = Infinity;
+    for (const rc of roomDataList) {
+      const b   = rc.bounds;
+      const mid = b.y + b.h / 2;
+      const d   = abs(this.posY - mid);
+      if (d < nearestDist) { nearestDist = d; nearest = rc; }
+    }
+    if (nearest) { this.roomId = nearest.id; this.floorNum = nearest.floorNum; }
   }
 
   baseUpdate(maxSpd, driftAmt) {
@@ -648,21 +660,34 @@ function drawRoomBackground(rc) {
 }
 
 function drawFloorDividers() {
-  // Subtle separator lines between floors (visual only, not physical)
-  stroke(30, 50, 30, 140);
-  strokeWeight(1);
+  // Draw corridors between floors as dark open passages
+  noStroke();
   for (let f = 1; f <= 2; f++) {
-    const divY = floorTopY(f) + floorH; // bottom of floor f = top of floor f-1
-    line(0, divY, canvasW, divY);
+    const corrY = floorTopY(f) + floorH;   // corridor starts at bottom of floor f
+    // Dark corridor background
+    fill(8, 12, 8);
+    rect(0, corrY, canvasW, CORRIDOR_H);
+    // Subtle entrance marks on left and right edges
+    fill(40, 70, 40, 120);
+    rect(0,           corrY, 6, CORRIDOR_H);
+    rect(canvasW - 6, corrY, 6, CORRIDOR_H);
+    // Floor label in corridor
+    fill(50, 80, 50, 100);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(9);
+    text('— doorgang —', canvasW / 2, corrY + CORRIDOR_H / 2);
   }
   noStroke();
 }
 
-// Set left panel heights to match floorH
+// Set left panel heights to match floorH (corridors are canvas-only, not in panels)
 function updatePanelHeights() {
+  const totalH = canvasH;  // distribute evenly across 3 panels
+  const panelH = Math.floor(totalH / 3);
   for (let f = 1; f <= 3; f++) {
     const el = document.getElementById('panel-floor' + f);
-    if (el) el.style.height = floorH + 'px';
+    if (el) el.style.height = panelH + 'px';
   }
 }
 
