@@ -6,7 +6,7 @@
       "name": "Begane grond",
       "floor": 1,
       "sensors": {
-        "temperature": 20.2,
+        "temperature": 22,
         "humidity": 556,
         "light": 500,
         "motion": false,
@@ -32,7 +32,7 @@
       "sensors": {
         "temperature": 18,
         "humidity": 50,
-        "light": 50,
+        "light": 10,
         "motion": false,
         "co2": 650
       }
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-25T16:33:07Z"
+  "lastUpdated": "2026-03-25T16:33:25Z"
 }
