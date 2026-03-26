@@ -66,6 +66,54 @@ function floorBounds(floorNum) {
 
 // Returns a synthetic env object blending two adjacent rooms.
 // Used when a cell is in the corridor transition zone.
+// Inverse-distance weighted environment at a given Y position.
+// Each floor's sensors are weighted by 1/distance to that floor's center Y.
+// This gives smooth, physically correct blending everywhere on the canvas.
+function weightedEnvAtY(posY) {
+  const eps = 1; // avoid division by zero
+  let totalW = 0;
+  const weights = [];
+  for (const rc of roomDataList) {
+    const centerY = floorTopY(rc.floorNum) + floorH / 2;
+    const w = 1 / (abs(posY - centerY) + eps);
+    weights.push(w);
+    totalW += w;
+  }
+
+  // Blend all sensor values by normalized weights
+  let temperature = 0, humidity = 0, lightVal = 0, co2 = 0;
+  let motionAny = false;
+  for (let i = 0; i < roomDataList.length; i++) {
+    const rc = roomDataList[i];
+    const wn = weights[i] / totalW;
+    temperature += rc.sensors.temperature * wn;
+    humidity    += rc.sensors.humidity    * wn;
+    lightVal    += rc.sensors.light       * wn;
+    co2         += rc.sensors.co2         * wn;
+    if (rc.sensors.motion) motionAny = true;
+  }
+
+  const s = { temperature, humidity, light: lightVal, co2, motion: motionAny };
+  // Nearest floor for room assignment
+  let nearest = roomDataList[0];
+  let minD = Infinity;
+  for (let i = 0; i < roomDataList.length; i++) {
+    if (weights[i] > minD) continue;  // higher weight = closer
+    const centerY = floorTopY(roomDataList[i].floorNum) + floorH / 2;
+    const d = abs(posY - centerY);
+    if (d < minD) { minD = d; nearest = roomDataList[i]; }
+  }
+  return {
+    id: nearest.id, floorNum: nearest.floorNum,
+    sensors: s, bounds: nearest.bounds,
+    normTemp()     { return constrain((s.temperature - 10) / 25, 0, 1); },
+    normHumidity() { return constrain(s.humidity / 100, 0, 1); },
+    normLight()    { return constrain(s.light / 600, 0, 1); },
+    normCo2()      { return constrain((s.co2 - 400) / 800, 0, 1); },
+    hasMotion()    { return s.motion; },
+  };
+}
+
 function blendRoomConfigs(rcLow, rcHigh, t) {
   const lrp = (a, b) => a + (b - a) * t;
   const s = {
@@ -186,42 +234,13 @@ class BaseCell {
     if (this.posY > canvasH - mg) { this.posY = canvasH - mg; this.velY *= -1; }
   }
 
-  // Update room membership + blended environment based on Y position.
+  // Update room membership + IDW-blended environment based on Y position.
+  // Uses inverse-distance weighting to all floor centers — smooth everywhere.
   updateRoomByPosition() {
-    // Check corridor zones first — blend adjacent room environments
-    for (let f = 1; f <= 2; f++) {
-      const corrY = floorTopY(f) + floorH;
-      if (this.posY >= corrY && this.posY < corrY + CORRIDOR_H) {
-        const rcLow  = roomDataList.find(r => r.floorNum === f);
-        const rcHigh = roomDataList.find(r => r.floorNum === f + 1);
-        if (rcLow && rcHigh) {
-          const t = (this.posY - corrY) / CORRIDOR_H; // 0=near lower, 1=near upper
-          this.currentEnv = blendRoomConfigs(rcLow, rcHigh, t);
-          // Assign to whichever floor the cell is closer to
-          if (t < 0.5) { this.roomId = rcLow.id;  this.floorNum = rcLow.floorNum; }
-          else         { this.roomId = rcHigh.id; this.floorNum = rcHigh.floorNum; }
-          return;
-        }
-      }
-    }
-    // Normal floor zone
-    for (const rc of roomDataList) {
-      const b = rc.bounds;
-      if (this.posY >= b.y && this.posY < b.y + b.h) {
-        this.roomId     = rc.id;
-        this.floorNum   = rc.floorNum;
-        this.currentEnv = rc;
-        return;
-      }
-    }
-    // Fallback: nearest floor centre
-    let nearest = null, nearestDist = Infinity;
-    for (const rc of roomDataList) {
-      const mid = rc.bounds.y + rc.bounds.h / 2;
-      const d   = abs(this.posY - mid);
-      if (d < nearestDist) { nearestDist = d; nearest = rc; }
-    }
-    if (nearest) { this.roomId = nearest.id; this.floorNum = nearest.floorNum; this.currentEnv = nearest; }
+    const env = weightedEnvAtY(this.posY);
+    this.currentEnv = env;
+    this.roomId     = env.id;
+    this.floorNum   = env.floorNum;
   }
 
   baseUpdate(maxSpd, driftAmt) {
