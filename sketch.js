@@ -574,10 +574,17 @@ class CellFungus extends BaseCell {
   }
 
   update() {
-    this.baseUpdate(0.12, 0.012); // fungus barely moves but can creep
+    this.baseUpdate(0.25, 0.025); // increased drift so fungi wander between floors
     if (this.isDead) return;
     const rc = this.getRoomConfig();
     if (!rc) return;
+
+    // Occasional random impulse to break out of clusters
+    if (frameCount % 180 === 0 && random() < 0.3) {
+      const ang = random(TWO_PI);
+      this.velX += cos(ang) * 0.3;
+      this.velY += sin(ang) * 0.3;
+    }
 
     // Thrives on humidity, CO2, and mild temperature
     this.energy += rc.normHumidity() * 0.10 + rc.normCo2() * 0.05 - 0.03;
@@ -707,8 +714,7 @@ function spawnFungusNear(roomCfg, parent) {
   const ang   = random(TWO_PI);
   const spDist = parent.cellSize * 2 + random(4, 12);
   child.posX  = constrain(parent.posX + cos(ang) * spDist, 8, canvasW - 8);
-  child.posY  = constrain(parent.posY + sin(ang) * spDist,
-    roomCfg.bounds.y + 8, roomCfg.bounds.y + roomCfg.bounds.h - 8);
+  child.posY  = constrain(parent.posY + sin(ang) * spDist, 8, canvasH - 8);
   child.energy = 60;
   allCells.push(child);
 }
