@@ -20,7 +20,7 @@
       "sensors": {
         "temperature": 19.6,
         "humidity": 50,
-        "light": 2096,
+        "light": 1895,
         "motion": false,
         "co2": 600
       }
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-27T11:06:05Z"
+  "lastUpdated": "2026-03-27T11:08:06Z"
 }
