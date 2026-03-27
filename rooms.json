@@ -9,7 +9,7 @@
         "temperature": 22,
         "humidity": 60,
         "light": 500,
-        "motion": true,
+        "motion": false,
         "co2": 600
       }
     },
@@ -50,5 +50,5 @@
       "positionFraction": 0.5
     }
   ],
-  "lastUpdated": "2026-03-27T10:04:51Z"
+  "lastUpdated": "2026-03-27T10:05:52Z"
 }
