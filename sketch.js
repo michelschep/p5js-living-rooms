@@ -160,11 +160,11 @@ class RoomConfig {
 // ---------------------------------------------------------------------------
 class BaseCell {
   constructor(roomCfg) {
-    const b        = roomCfg.bounds;
     this.roomId    = roomCfg.id;
     this.floorNum  = roomCfg.floorNum;
-    this.posX      = b.x + random(BASE_RADIUS + 6, b.w - BASE_RADIUS - 6);
-    this.posY      = b.y + random(BASE_RADIUS + 6, b.h - BASE_RADIUS - 6);
+    // Spawn anywhere on the full canvas — rooms and corridors are one unified space
+    this.posX      = random(BASE_RADIUS + 6, canvasW - BASE_RADIUS - 6);
+    this.posY      = random(BASE_RADIUS + 6, canvasH - BASE_RADIUS - 6);
     this.velX      = random(-0.3, 0.3);
     this.velY      = random(-0.3, 0.3);
     this.energy    = random(80, 140);   // more starting energy
@@ -366,7 +366,7 @@ class CellHerbivore extends BaseCell {
     // Seek nearest plant
     let prey = null, preyDist = 90;
     for (const c of allCells) {
-      if (c.cellType !== 'plant' || c.roomId !== this.roomId || c.isDead) continue;
+      if (c.cellType !== 'plant' || c.isDead) continue;
       const d = dist(this.posX, this.posY, c.posX, c.posY);
       if (d < preyDist) { preyDist = d; prey = c; }
     }
@@ -503,7 +503,6 @@ class CellDecomposer extends BaseCell {
 
     let target = null, targetDist = 70;
     for (const dc of deadCells) {
-      if (dc.roomId !== this.roomId) continue;
       const d = dist(this.posX, this.posY, dc.posX, dc.posY);
       if (d < targetDist) { targetDist = d; target = dc; }
     }
@@ -609,7 +608,7 @@ class CellFungus extends BaseCell {
     this.energy += rc.normHumidity() * 0.10 + rc.normCo2() * 0.05 - 0.03;
     // Eats nearby plants (absorbs nutrients)
     for (const c of allCells) {
-      if ((c.cellType !== 'plant') || c.roomId !== this.roomId || c.isDead) continue;
+      if ((c.cellType !== 'plant') || c.isDead) continue;
       const d = dist(this.posX, this.posY, c.posX, c.posY);
       if (d < this.cellSize + c.cellSize + 2 && random() < 0.015) {
         c.energy    -= 8;
@@ -618,7 +617,6 @@ class CellFungus extends BaseCell {
     }
     // Also eats nearby dead cells
     for (const dc of deadCells) {
-      if (dc.roomId !== this.roomId) continue;
       const d = dist(this.posX, this.posY, dc.posX, dc.posY);
       if (d < this.cellSize + 6) { dc.decayLife = 0; this.energy += 20; }
     }
@@ -716,8 +714,7 @@ const MAX_SPECIES_GLOBAL = {
 };
 
 function spawnCell(cellTypeName, roomCfg) {
-  const roomCells = allCells.filter(c => c.roomId === roomCfg.id);
-  if (roomCells.length >= MAX_CELLS_ROOM) return;
+  if (allCells.length >= MAX_CELLS_ROOM * roomDataList.length) return;
   const globalCap   = MAX_SPECIES_GLOBAL[cellTypeName] ?? 60;
   const globalCount = allCells.filter(c => c.cellType === cellTypeName).length;
   if (globalCount >= globalCap) return;
@@ -725,8 +722,7 @@ function spawnCell(cellTypeName, roomCfg) {
 }
 
 function spawnFungusNear(roomCfg, parent) {
-  const roomCells = allCells.filter(c => c.roomId === roomCfg.id);
-  if (roomCells.length >= MAX_CELLS_ROOM) return;
+  if (allCells.length >= MAX_CELLS_ROOM * roomDataList.length) return;
   const globalCount = allCells.filter(c => c.cellType === 'fungus').length;
   if (globalCount >= MAX_SPECIES_GLOBAL.fungus) return;
   const child = new CellFungus(roomCfg);
@@ -761,15 +757,11 @@ function checkMinPopulation() {
     if (c.cellType === 'herbivore') cntH++;
     if (c.cellType === 'predator')  cntPr++;
   }
-
-  // Find the room with the most plants — best place to seed herbivores
-  const roomWithPlants = roomDataList
-    .map(rc => ({ rc, cnt: allCells.filter(c => c.cellType === 'plant' && c.roomId === rc.id).length }))
-    .sort((a, b) => b.cnt - a.cnt)[0]?.rc ?? roomDataList[0];
-
-  if (cntP  < 15) { for (let i = 0; i < 4; i++) allCells.push(makeCell('plant',     roomWithPlants)); }
-  if (cntH  < 8)  { for (let i = 0; i < 3; i++) allCells.push(makeCell('herbivore', roomWithPlants)); }
-  if (cntPr < 3)  {                               allCells.push(makeCell('predator',  roomWithPlants)); }
+  // Spawn anywhere on canvas — no room preference
+  const anyRoom = roomDataList[0];
+  if (cntP  < 15) { for (let i = 0; i < 4; i++) allCells.push(makeCell('plant',     anyRoom)); }
+  if (cntH  < 8)  { for (let i = 0; i < 3; i++) allCells.push(makeCell('herbivore', anyRoom)); }
+  if (cntPr < 3)  {                               allCells.push(makeCell('predator',  anyRoom)); }
 }
 
 // ---------------------------------------------------------------------------
