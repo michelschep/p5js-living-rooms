@@ -6,7 +6,7 @@ Environmental data from **Home Assistant** (temperature, humidity, light, motion
 
 ## Live demo
 
-👉 [https://michel-schep.github.io/p5js-living-rooms/](https://michel-hulsbergen.github.io/p5js-living-rooms/)
+👉 [https://michel-schep.github.io/p5js-living-rooms/](https://michel-schep.github.io/p5js-living-rooms/)
 
 ## Rooms
 
